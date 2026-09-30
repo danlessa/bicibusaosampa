@@ -1,28 +1,60 @@
-// Serves a JSON response from the Cloudflare edge cache for `ttl` seconds,
-// computing it with `produce()` on a miss. Upstream APIs get at most one call
-// per TTL per edge location, no matter how many people have the map open.
+// Serves a JSON response from the Cloudflare edge cache, computing it with
+// `produce()` at most once per `ttl` seconds per edge location.
+//
+// Stale-while-revalidate: once an answer is older than `ttl`, the next request
+// still gets it immediately while a fresh one is fetched in the background, so
+// visitors never wait on the upstream API unless the cache is empty or older
+// than STALE_FOR.
+
+const STALE_FOR = 300;
+const FETCHED_AT = 'X-Fetched-At';
+
+// Refreshes already running in this isolate, by cache key.
+const inflight = new Map();
+
+function forClient(res, maxAge) {
+  const out = new Response(res.body, res);
+  out.headers.set('Cache-Control', `public, max-age=${maxAge}`);
+  out.headers.delete(FETCHED_AT);
+  return out;
+}
+
+const JSON_TYPE = { 'Content-Type': 'application/json; charset=utf-8' };
+
+// Resolves to the JSON text (not a Response, which can't be shared between requests).
+async function refresh(context, key, produce) {
+  const text = JSON.stringify(await produce());
+  const stored = new Response(text, {
+    headers: { ...JSON_TYPE, 'Cache-Control': `public, max-age=${STALE_FOR}`, [FETCHED_AT]: String(Date.now()) },
+  });
+  context.waitUntil(caches.default.put(key, stored));
+  return text;
+}
+
+function refreshOnce(context, key, produce) {
+  if (!inflight.has(key.url)) {
+    const p = refresh(context, key, produce).finally(() => inflight.delete(key.url));
+    inflight.set(key.url, p);
+  }
+  return inflight.get(key.url);
+}
 
 export async function cachedJson(context, ttl, produce) {
-  const cache = caches.default;
-  const key = new Request(new URL(context.request.url).origin + new URL(context.request.url).pathname);
-  const hit = await cache.match(key);
-  if (hit) return hit;
+  const url = new URL(context.request.url);
+  const key = new Request(url.origin + url.pathname);
+  const hit = await caches.default.match(key);
+  const age = hit ? (Date.now() - Number(hit.headers.get(FETCHED_AT))) / 1000 : Infinity;
 
-  let body, status = 200;
+  if (hit && age < ttl) return forClient(hit, Math.max(1, Math.round(ttl - age)));
+  if (hit) {
+    context.waitUntil(refreshOnce(context, key, produce).catch((err) => console.error(err)));
+    return forClient(hit, 1);
+  }
   try {
-    body = await produce();
+    const text = await refreshOnce(context, key, produce);
+    return new Response(text, { headers: { ...JSON_TYPE, 'Cache-Control': `public, max-age=${ttl}` } });
   } catch (err) {
     console.error(err);
-    body = { error: String(err.message ?? err) };
-    status = 502;
+    return Response.json({ error: String(err.message ?? err) }, { status: 502, headers: { 'Cache-Control': 'public, max-age=5' } });
   }
-  const res = new Response(JSON.stringify(body), {
-    status,
-    headers: {
-      'Content-Type': 'application/json; charset=utf-8',
-      'Cache-Control': `public, max-age=${status === 200 ? ttl : 5}`,
-    },
-  });
-  if (status === 200) context.waitUntil(cache.put(key, res.clone()));
-  return res;
 }

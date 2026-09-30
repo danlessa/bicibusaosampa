@@ -1,19 +1,32 @@
-# Busão com Bici
+# Bici Busão Sampa
 
 Mapa ao vivo dos ônibus e trilhos da Grande São Paulo que levam bicicleta, em
 [busao.bicisampa.info](https://busao.bicisampa.info).
 
-- **Metrô e trens** (linhas 1 a 15 e 17): cada trilho é pintado conforme a bicicleta agora:
+- **Metrô e trens** (linhas 1 a 15 e 17): linhas finas na cor da situação da
+  bicicleta agora:
   - 🟢 verde: liberada
   - 🟡 amarelo: a linha opera, mas está fora do horário da bici
   - 🔴 vermelho: a linha está fechada ou paralisada
 
   O status sai dos horários de operação e das regras de bicicleta de cada operadora,
-  combinados com o status operacional ao vivo das linhas.
-- **Ônibus SPTrans**: posição ao vivo (Olho Vivo) e itinerário das linhas com
-  superarticulados de 23 m, os únicos com suporte para bicicleta
+  combinados com o status operacional ao vivo das linhas. As estações aparecem a
+  partir do zoom 12, com o símbolo do Metrô ou da CPTM.
+- **Ônibus SPTrans**: posição ao vivo (Olho Vivo), itinerário e pontos de parada das
+  linhas com superarticulados de 23 m, os únicos com suporte para bicicleta
   ([Portaria SMT 32/2016](https://legislacao.prefeitura.sp.gov.br/leis/portaria-secretaria-municipal-de-mobilidade-e-transportes-32-de-7-de-maio-de-2016)).
-  O marcador fica verde ou amarelo conforme o horário permitido.
+  - Cada ônibus aparece de lado, com setas no corpo apontando o sentido da viagem.
+  - A cor do corpo indica o tipo de ônibus: verde para convencional, amarelo para
+    elétrico (`"electric": true` em `bike-buses.json`).
+  - O contorno indica a bicicleta: preto quando é permitida naquele horário,
+    vermelho quando não é.
+  - Os itinerários são verdes (ou amarelos, se elétricos) com hachura preta e
+    ficam levemente deslocados, para que sentidos e linhas no mesmo corredor
+    apareçam lado a lado.
+  - Os pontos de parada aparecem a partir do zoom 14.
+
+O controle de camadas, no canto superior direito, liga e desliga separadamente:
+trilhos, estações, itinerários, ônibus ao vivo e pontos de ônibus.
 
 Ônibus intermunicipais (antiga EMTU, hoje Artesp) não aparecem porque não aceitam
 bicicleta a bordo.
@@ -51,9 +64,10 @@ public/                     site estático (Leaflet)
   data/bike-buses.json      linhas de ônibus com suporte e regras da SPTrans
   data/rail.geojson         trilhos e estações (gerado, OpenStreetMap)
   data/bus-routes.geojson   itinerários (gerado, GTFS SPTrans)
+  data/bus-stops.geojson    pontos de parada dessas linhas (gerado, GTFS SPTrans)
 functions/api/buses.js      proxy do Olho Vivo: filtra os ônibus com bici (cache de 20 s)
 functions/api/rail-status.js  status ao vivo das linhas (feed usado por trilhos.motiva.com.br, cache de 60 s)
-scripts/build-data.mjs      gera os .geojson
+scripts/build-data.mjs      gera os .geojson (simplificados a ~2 m)
 ```
 
 As funções existem porque nem o Olho Vivo nem o feed de status aceitam chamadas
@@ -106,6 +120,8 @@ Para publicar direto da máquina, sem integração com o Git: `npm run deploy`.
   - [API Olho Vivo](https://www.sptrans.com.br/desenvolvedores/)
   - [GTFS SPTrans (espelho do Mobility Database)](https://files.mobilitydatabase.org/mdb-8/latest.zip)
   - © colaboradores do [OpenStreetMap](https://www.openstreetmap.org/copyright)
+  - Ícones do [Metrô](https://commons.wikimedia.org/wiki/File:Metr%C3%B4-SP_icon.svg)
+    e da [CPTM](https://commons.wikimedia.org/wiki/File:CPTM_icon.svg), via Wikimedia Commons
 
 ## Licença
 

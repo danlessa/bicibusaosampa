@@ -1,5 +1,5 @@
 {
-  "_comment": "Linhas de metrô e trem da Grande SP. 'service' é uma lista de horários de operação; vale o primeiro cujo 'until' (inclusive) ainda não passou. 'bikes' é o horário em que bicicletas comuns são permitidas. Horários 'HH:MM' acima de 24:00 atravessam a meia-noite.",
+  "_comment": "Linhas de metrô e trem da Grande SP. 'service' é uma lista de horários de operação; vale o primeiro cujo 'until' (inclusive) ainda não passou. 'bikes' é o horário em que bicicletas comuns são permitidas. Horários 'HH:MM' acima de 24:00 atravessam a meia-noite. 'mode' define o ícone das estações: 'metro' (Metrô) ou 'train' (CPTM).",
   "bikeRules": {
     "summary": "Dias úteis das 10h às 16h e das 21h até o fechamento; sábados, domingos e feriados o dia todo. Somente no último carro, até 4 bicicletas por trem. Dobráveis (embaladas) a qualquer hora.",
     "sources": [
@@ -102,7 +102,8 @@
             ]
           ]
         }
-      ]
+      ],
+      "mode": "metro"
     },
     {
       "ref": "2",
@@ -164,7 +165,8 @@
             ]
           ]
         }
-      ]
+      ],
+      "mode": "metro"
     },
     {
       "ref": "3",
@@ -226,7 +228,8 @@
             ]
           ]
         }
-      ]
+      ],
+      "mode": "metro"
     },
     {
       "ref": "4",
@@ -260,7 +263,8 @@
             ]
           ]
         }
-      ]
+      ],
+      "mode": "metro"
     },
     {
       "ref": "5",
@@ -294,7 +298,8 @@
             ]
           ]
         }
-      ]
+      ],
+      "mode": "metro"
     },
     {
       "ref": "6",
@@ -314,7 +319,8 @@
           "sunday": [],
           "holiday": []
         }
-      ]
+      ],
+      "mode": "metro"
     },
     {
       "ref": "7",
@@ -348,7 +354,8 @@
             ]
           ]
         }
-      ]
+      ],
+      "mode": "train"
     },
     {
       "ref": "8",
@@ -382,7 +389,8 @@
             ]
           ]
         }
-      ]
+      ],
+      "mode": "train"
     },
     {
       "ref": "9",
@@ -416,7 +424,8 @@
             ]
           ]
         }
-      ]
+      ],
+      "mode": "train"
     },
     {
       "ref": "10",
@@ -450,7 +459,8 @@
             ]
           ]
         }
-      ]
+      ],
+      "mode": "train"
     },
     {
       "ref": "11",
@@ -484,7 +494,8 @@
             ]
           ]
         }
-      ]
+      ],
+      "mode": "train"
     },
     {
       "ref": "12",
@@ -518,7 +529,8 @@
             ]
           ]
         }
-      ]
+      ],
+      "mode": "train"
     },
     {
       "ref": "13",
@@ -552,7 +564,8 @@
             ]
           ]
         }
-      ]
+      ],
+      "mode": "train"
     },
     {
       "ref": "15",
@@ -614,7 +627,8 @@
             ]
           ]
         }
-      ]
+      ],
+      "mode": "metro"
     },
     {
       "ref": "17",
@@ -639,7 +653,8 @@
           "sunday": [],
           "holiday": []
         }
-      ]
+      ],
+      "mode": "metro"
     }
   ]
 }

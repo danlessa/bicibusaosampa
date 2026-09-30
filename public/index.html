@@ -3,12 +3,23 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>Busão com Bici · São Paulo</title>
+  <title>Bici Busão Sampa</title>
   <meta name="description" content="Mapa ao vivo dos ônibus e trens da Grande São Paulo que levam bicicleta.">
   <meta name="theme-color" content="#0f766e">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🚲</text></svg>">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
   <link rel="stylesheet" href="style.css">
+  <!-- Fetch everything app.js needs up front instead of discovering it import by import. -->
+  <link rel="modulepreload" href="js/hatch.js">
+  <link rel="modulepreload" href="js/heading.js">
+  <link rel="modulepreload" href="js/offset.js">
+  <link rel="modulepreload" href="js/rail.js">
+  <link rel="modulepreload" href="js/schedule.js">
+  <link rel="modulepreload" href="js/time.js">
+  <link rel="preload" href="data/rail-lines.json" as="fetch" crossorigin>
+  <link rel="preload" href="data/bike-buses.json" as="fetch" crossorigin>
+  <link rel="preload" href="data/rail.geojson" as="fetch" crossorigin>
+  <link rel="preconnect" href="https://tile.openstreetmap.org">
 </head>
 <body>
   <div id="map" role="application" aria-label="Mapa"></div>
@@ -17,7 +28,7 @@
     <header>
       <button id="panel-toggle" aria-expanded="true" aria-controls="panel-body" title="Mostrar/ocultar painel">☰</button>
       <div>
-        <h1>Busão com Bici</h1>
+        <h1>Bici Busão Sampa</h1>
         <p class="sub">Ônibus e trilhos que levam bicicleta na Grande SP</p>
       </div>
     </header>
@@ -42,7 +53,7 @@
 
       <footer>
         <p>Bicicletas dobráveis podem ser levadas a qualquer hora nos trilhos. Confira sempre as regras na estação.</p>
-        <p><a href="https://github.com/danlessa/bicibusaosampa">Código-fonte</a> · Dados: SPTrans Olho Vivo, © OpenStreetMap</p>
+        <p><a href="https://github.com/danlessa/bicibusaosampa">Código-fonte</a> · Dados: SPTrans Olho Vivo, © OpenStreetMap · Ícones Metrô e CPTM: <a href="https://commons.wikimedia.org/wiki/File:Metr%C3%B4-SP_icon.svg">Wikimedia Commons</a></p>
       </footer>
     </div>
   </aside>

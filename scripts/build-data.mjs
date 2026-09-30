@@ -2,6 +2,7 @@
 // Builds the static map layers in public/data/:
 //   rail.geojson        tracks and stations of metro/train lines, from OpenStreetMap (Overpass)
 //   bus-routes.geojson  routes of the bike-carrying bus lines, from the SPTrans GTFS
+//   bus-stops.geojson   stops served by those lines, from the SPTrans GTFS
 //
 // Usage: node scripts/build-data.mjs [rail|bus]   (default: both)
 // Downloads are cached in .cache/ for a day; delete it to force a refresh.
@@ -31,6 +32,33 @@ const GTFS_URLS = [
 const RMSP_BBOX = '-24.1,-47.2,-23.1,-46.0';
 
 const round = (x) => Math.round(x * 1e5) / 1e5;
+
+// Douglas–Peucker simplification of [lon, lat] points. The tolerance (~2 m) is
+// invisible on the map and roughly halves the file sizes.
+const SIMPLIFY_TOLERANCE = 0.00002;
+
+function simplify(pts, tol = SIMPLIFY_TOLERANCE) {
+  if (pts.length < 3) return pts;
+  const keep = new Uint8Array(pts.length);
+  keep[0] = keep[pts.length - 1] = 1;
+  const stack = [[0, pts.length - 1]];
+  while (stack.length) {
+    const [a, b] = stack.pop();
+    const [ax, ay] = pts[a], [bx, by] = pts[b];
+    const dx = bx - ax, dy = by - ay;
+    const len = Math.hypot(dx, dy) || Number.EPSILON;
+    let max = 0, idx = -1;
+    for (let i = a + 1; i < b; i++) {
+      const d = Math.abs(dy * pts[i][0] - dx * pts[i][1] + bx * ay - by * ax) / len;
+      if (d > max) { max = d; idx = i; }
+    }
+    if (max > tol) {
+      keep[idx] = 1;
+      stack.push([a, idx], [idx, b]);
+    }
+  }
+  return pts.filter((_, i) => keep[i]);
+}
 
 async function readJson(path) {
   return JSON.parse(await readFile(path, 'utf8'));
@@ -115,7 +143,7 @@ async function buildRail() {
     .map(([ref, ways]) => ({
       type: 'Feature',
       properties: { kind: 'track', ref },
-      geometry: { type: 'MultiLineString', coordinates: [...ways.values()] },
+      geometry: { type: 'MultiLineString', coordinates: [...ways.values()].map((w) => simplify(w)) },
     }));
   for (const s of stations.values()) {
     features.push({
@@ -172,7 +200,7 @@ async function buildBus() {
     firstOk(GTFS_URLS, { headers: { 'User-Agent': 'curl/8 bicibusaosampa' } }),
   );
   const files = unzipSync(new Uint8Array(zip), {
-    filter: (f) => ['routes.txt', 'trips.txt', 'shapes.txt'].includes(f.name),
+    filter: (f) => ['routes.txt', 'trips.txt', 'shapes.txt', 'stops.txt', 'stop_times.txt'].includes(f.name),
   });
 
   const routes = new Map(parseCsv(strFromU8(files['routes.txt'])).map((r) => [r.route_id, r]));
@@ -198,7 +226,7 @@ async function buildBus() {
     },
     geometry: {
       type: 'LineString',
-      coordinates: (points.get(t.shape_id) ?? []).sort((a, b) => a[0] - b[0]).map(([, lon, lat]) => [lon, lat]),
+      coordinates: simplify((points.get(t.shape_id) ?? []).sort((a, b) => a[0] - b[0]).map(([, lon, lat]) => [lon, lat])),
     },
   }));
 
@@ -207,6 +235,24 @@ async function buildBus() {
   if (missing.length) console.warn(`  line(s) not in GTFS: ${missing.join(', ')}`);
   await writeFile(join(DATA, 'bus-routes.geojson'), JSON.stringify({ type: 'FeatureCollection', features }));
   console.log(`  wrote bus-routes.geojson: ${found.size} lines, ${features.length} directions`);
+
+  const tripRoute = new Map(trips.map((t) => [t.trip_id, t.route_id]));
+  const stopLines = new Map(); // stop_id -> Set(route_id)
+  for (const st of parseCsv(strFromU8(files['stop_times.txt']))) {
+    const route = tripRoute.get(st.trip_id);
+    if (!route) continue;
+    if (!stopLines.has(st.stop_id)) stopLines.set(st.stop_id, new Set());
+    stopLines.get(st.stop_id).add(route);
+  }
+  const stops = parseCsv(strFromU8(files['stops.txt']))
+    .filter((st) => stopLines.has(st.stop_id))
+    .map((st) => ({
+      type: 'Feature',
+      properties: { id: st.stop_id, name: st.stop_name?.trim(), lines: [...stopLines.get(st.stop_id)].sort() },
+      geometry: { type: 'Point', coordinates: [round(+st.stop_lon), round(+st.stop_lat)] },
+    }));
+  await writeFile(join(DATA, 'bus-stops.geojson'), JSON.stringify({ type: 'FeatureCollection', features: stops }));
+  console.log(`  wrote bus-stops.geojson: ${stops.length} stops`);
 }
 
 // A failed download keeps the previously committed file, so a flaky upstream
