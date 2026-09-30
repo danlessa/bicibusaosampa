@@ -234,8 +234,10 @@ const busLineByCode = new Map(busLines.map((l) => [l.code, l]));
 const busColor = () => getComputedStyle(document.documentElement).getPropertyValue('--bus').trim() || '#111';
 
 const OffsetPolyline = offsetPolylineClass(L);
-// Pixel offset of lane n: routes sit beside the street centre, right of travel direction.
-const laneOffset = (lane) => 3.5 + lane * 5.5;
+// Pixel offset of lane n: routes sit beside the street centre, right of travel
+// direction. Full size from zoom 15, shrinking when zoomed out so routes don't
+// drift away from their streets.
+const laneOffset = (lane, zoom) => (3.5 + lane * 5.5) * Math.min(1, Math.max(0.15, (zoom - 10) / 5));
 
 function addBusRoutes(busGeo) {
   const features = busGeo.features.filter((f) => busLineByCode.has(f.properties.code) && f.geometry.coordinates.length >= 2);
@@ -253,7 +255,7 @@ function addBusRoutes(busGeo) {
       renderer: busRouteRenderer,
       weight: 5,
       opacity: 1,
-      offset: laneOffset(lanes[line.code]),
+      offset: (zoom) => laneOffset(lanes[line.code], zoom),
       hatch: { base: line.electric ? ROUTE_COLORS.electric : ROUTE_COLORS.other, stripe: ROUTE_COLORS.hatch },
     }).bindTooltip(`${esc(line.code)} → ${esc(f.properties.headsign)}`, { sticky: true });
     busRouteLayer.addLayer(route);

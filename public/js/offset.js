@@ -1,13 +1,14 @@
-// Polylines drawn a fixed number of pixels to the side of their true path, so
-// routes sharing a street show side by side. Positive offsets go to the right of
-// the direction of travel. Approximate on purpose: each vertex moves along the
+// Polylines drawn a number of pixels to the side of their true path, so routes
+// sharing a street show side by side. Positive offsets go to the right of the
+// direction of travel. `offset` is a number, or a function of the map zoom. Approximate on purpose: each vertex moves along the
 // average normal of its two segments.
 
 export function offsetPolylineClass(L) {
   return L.Polyline.extend({
     _project() {
       L.Polyline.prototype._project.call(this);
-      const d = this.options.offset;
+      const { offset } = this.options;
+      const d = typeof offset === 'function' ? offset(this._map.getZoom()) : offset;
       if (d) this._rings = this._rings.map((ring) => offsetRing(ring, d, L));
     },
   });
