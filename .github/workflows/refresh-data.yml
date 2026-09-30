@@ -1,0 +1,35 @@
+# Rebuilds the map layers (rail tracks from OpenStreetMap, bus routes from the
+# SPTrans GTFS) every Monday and whenever the line lists change, and commits
+# the result. Cloudflare Pages redeploys on the push.
+name: refresh-data
+
+on:
+  schedule:
+    - cron: '0 9 * * 1'
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - public/data/bike-buses.json
+      - public/data/rail-lines.json
+      - scripts/build-data.mjs
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm ci --ignore-scripts
+      - run: npm run build:data
+      - name: Commit changes
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git add public/data/*.geojson
+          git diff --cached --quiet || { git commit -m 'Atualiza camadas do mapa'; git push; }

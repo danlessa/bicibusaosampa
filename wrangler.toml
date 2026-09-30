@@ -1,0 +1,7 @@
+# Cloudflare Pages project for busao.bicisampa.info
+name = "bicibusaosampa"
+pages_build_output_dir = "public"
+compatibility_date = "2026-09-01"
+
+# Secret, set with:  npx wrangler pages secret put SPTRANS_TOKEN
+# For local development put SPTRANS_TOKEN=... in .dev.vars

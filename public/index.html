@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Busão com Bici · São Paulo</title>
+  <meta name="description" content="Mapa ao vivo dos ônibus e trens da Grande São Paulo que levam bicicleta.">
+  <meta name="theme-color" content="#0f766e">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🚲</text></svg>">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="map" role="application" aria-label="Mapa"></div>
+
+  <aside id="panel" aria-label="Legenda e linhas">
+    <header>
+      <button id="panel-toggle" aria-expanded="true" aria-controls="panel-body" title="Mostrar/ocultar painel">☰</button>
+      <div>
+        <h1>Busão com Bici</h1>
+        <p class="sub">Ônibus e trilhos que levam bicicleta na Grande SP</p>
+      </div>
+    </header>
+    <div id="panel-body">
+      <p id="clock" class="clock"></p>
+
+      <section>
+        <h2>Metrô e trens</h2>
+        <ul class="legend">
+          <li><span class="dot ok"></span>Bicicleta liberada agora</li>
+          <li><span class="dot wait"></span>Em operação, fora do horário da bici</li>
+          <li><span class="dot closed"></span>Fechada</li>
+        </ul>
+        <ul id="rail-list" class="lines"></ul>
+      </section>
+
+      <section>
+        <h2>Ônibus <span id="bus-count" class="count"></span></h2>
+        <p id="bus-status" class="note"></p>
+        <ul id="bus-list" class="lines"></ul>
+      </section>
+
+      <footer>
+        <p>Bicicletas dobráveis podem ser levadas a qualquer hora nos trilhos. Confira sempre as regras na estação.</p>
+        <p><a href="https://github.com/danlessa/bicibusaosampa">Código-fonte</a> · Dados: SPTrans Olho Vivo, © OpenStreetMap</p>
+      </footer>
+    </div>
+  </aside>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

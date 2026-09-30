@@ -1,0 +1,36 @@
+{
+  "_comment": "Ônibus municipais (SPTrans) que levam bicicleta. Pela Portaria SMT 32/2016 só os superarticulados de 23 m têm suporte (adesivo verde no para-brisa), e a SPTrans não publica quais linhas os usam. Adicione linhas em 'lines' (código do letreiro, ex. 6450-10) ou veículos específicos em 'vehicles' (prefixo, ex. 21501).",
+  "rules": {
+    "source": "https://legislacao.prefeitura.sp.gov.br/leis/portaria-secretaria-municipal-de-mobilidade-e-transportes-32-de-7-de-maio-de-2016",
+    "summary": "Embarque pela porta traseira, prenda a bici no suporte e pague a tarifa. Uma bicicleta por ônibus. Dias úteis 10h01–15h59 e 19h01–5h59; sábados a partir das 14h; domingos e feriados o dia todo.",
+    "bikes": {
+      "weekday": [["00:00", "06:00"], ["10:01", "16:00"], ["19:01", "24:00"]],
+      "saturday": [["00:00", "06:00"], ["14:00", "24:00"]],
+      "sunday": [["00:00", "24:00"]],
+      "holiday": [["00:00", "24:00"]]
+    }
+  },
+  "lines": [
+    {
+      "code": "809P-10",
+      "name": "Term. Campo Limpo – Pinheiros",
+      "source": "https://prefeitura.sp.gov.br/w/noticia/vinte-onibus-superarticulados-comecam-a-circular"
+    },
+    {
+      "code": "857P-10",
+      "name": "Term. Campo Limpo – Paraíso",
+      "source": "https://prefeitura.sp.gov.br/w/noticia/vinte-onibus-superarticulados-comecam-a-circular"
+    },
+    {
+      "code": "4310-10",
+      "name": "E.T. Itaquera – Pq. D. Pedro II"
+    },
+    {
+      "code": "3459-10",
+      "name": "Itaim Paulista – Pq. D. Pedro II",
+      "note": "Superarticulados elétricos desde 2026; confirmar se têm suporte para bicicleta.",
+      "source": "https://diariodotransporte.com.br/2026/02/07/zona-leste-de-sao-paulo-ja-tem-linha-definida-para-esteia-de-onibus-eletricos-superarticulados-ineditos-com-tecnologia-da-f1-conheca-os-veiculos/"
+    }
+  ],
+  "vehicles": []
+}

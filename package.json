@@ -1,0 +1,17 @@
+{
+  "name": "bicibusaosampa",
+  "private": true,
+  "type": "module",
+  "description": "Mapa ao vivo dos ônibus e trens da Grande São Paulo que levam bicicleta",
+  "license": "GPL-3.0-or-later",
+  "scripts": {
+    "dev": "wrangler pages dev",
+    "build:data": "node scripts/build-data.mjs",
+    "test": "node --test",
+    "deploy": "wrangler pages deploy"
+  },
+  "devDependencies": {
+    "fflate": "^0.8.2",
+    "wrangler": "^4.0.0"
+  }
+}
