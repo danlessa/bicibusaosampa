@@ -1,8 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { selectVehicles } from '../functions/api/buses.js';
+import { readFileSync } from 'node:fs';
+
+import { vehicleFilter } from '../functions/_lib/vehicles.js';
 import { normalize } from '../functions/api/rail-status.js';
+
+const config = JSON.parse(readFileSync(new URL('../public/data/bike-buses.json', import.meta.url)));
+const selectVehicles = vehicleFilter(config);
 
 test('selectVehicles keeps listed lines and listed prefixes', () => {
   const snapshot = {
