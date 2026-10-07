@@ -2,7 +2,7 @@
 
 import { hatchRenderer } from './hatch.js';
 import { headingOfMove, headingOnRoute, iconTransform } from './heading.js';
-import { assignLanes, offsetPolylineClass } from './offset.js';
+import { offsetPolylineClass } from './offset.js';
 import { railStatus as lineStatus } from './rail.js';
 import { bikeStatus, describeTime } from './schedule.js';
 import { holidayName, spParts } from './time.js';
@@ -12,12 +12,12 @@ const BUS_REFRESH_MS = 20_000;
 const CLOCK_REFRESH_MS = 15_000;
 
 const STATUS_COLORS = { ok: '#16a34a', wait: '#eab308', closed: '#dc2626' };
-const ELECTRIC_COLOR = '#facc15';
-// Bus routes: yellow (electric) or green, hatched black.
-const ROUTE_COLORS = { electric: ELECTRIC_COLOR, other: '#16a34a', hatch: '#111111' };
-// Bus icons: body colour = vehicle type, silhouette colour = bike status
-// (black when bikes are allowed, red when not). Buses have no "closed" state.
-const BUS_BODY = { electric: ELECTRIC_COLOR, other: '#16a34a' };
+// Bus lines and their buses: green on their usual line, purple when a bike-rack bus
+// runs a line it doesn't usually serve. Routes are hatched black.
+const LINE_COLORS = { expected: '#16a34a', unusual: '#9333ea' };
+const HATCH_COLOR = '#111111';
+// Bus icon silhouette = bike status: black when bikes are allowed, red when not.
+// Buses have no "closed" state.
 const BUS_INK = { ok: '#1c1917', wait: '#dc2626' };
 const BUS_STATUS = { ok: 'ink', wait: 'closed' }; // dot classes in the panel/popups
 const STATUS_LABELS = { ok: 'Bici liberada', wait: 'Fora do horário da bici', closed: 'Fechada' };
@@ -53,7 +53,8 @@ const busLayer = L.layerGroup();
 // Stations and stops only appear when zoomed in, inside a group the user can toggle.
 const stationGroup = L.layerGroup();
 const busStopGroup = L.layerGroup();
-const ZOOMED_LAYERS = [[stationLayer, stationGroup, 12], [busStopLayer, busStopGroup, 14]];
+const BUS_STOP_MIN_ZOOM = 14;
+const ZOOMED_LAYERS = [[stationLayer, stationGroup, 12], [busStopLayer, busStopGroup, BUS_STOP_MIN_ZOOM]];
 
 function updateZoomedLayers() {
   for (const [layer, group, minZoom] of ZOOMED_LAYERS) {
@@ -87,7 +88,7 @@ function rememberLayers() {
 map.on('overlayadd overlayremove', rememberLayers);
 map.on('zoomend', updateZoomedLayers);
 // Bus icons shrink as you zoom out so busy corridors don't turn into a pile.
-const BUS_SCALE = { 10: 0.4, 11: 0.5, 12: 0.65, 13: 0.85 };
+const BUS_SCALE = { 10: 0.3, 11: 0.38, 12: 0.55, 13: 0.8 };
 const setBusScale = () => {
   const z = Math.round(map.getZoom());
   map.getContainer().style.setProperty('--bus-scale', z >= 14 ? 1 : BUS_SCALE[Math.max(10, z)]);
@@ -108,7 +109,6 @@ async function getJson(url) {
 // render; the map layers are drawn whenever they arrive.
 const railGeoPromise = getJson('data/rail.geojson').catch(() => ({ features: [] }));
 const busGeoPromise = getJson('data/bus-routes.geojson').catch(() => ({ features: [] }));
-const busStopsPromise = getJson('data/bus-stops.geojson').catch(() => ({ features: [] }));
 const [railConfig, busConfig] = await Promise.all([
   getJson('data/rail-lines.json'),
   getJson('data/bike-buses.json'),
@@ -227,41 +227,63 @@ async function refreshLive() {
 
 // ---------------------------------------------------------------- buses
 
-// `shapes` maps Olho Vivo "sentido" (1 or 2) to the route as [[lat, lon], ...] in travel order.
-const busLines = busConfig.lines.map((l) => ({ ...l, routes: [], shapes: {}, bounds: null }));
-const busLineByCode = new Map(busLines.map((l) => [l.code, l]));
+// Expected lines come from the config; lines a bike-rack bus runs unexpectedly are
+// added on the fly (`unusual`). `shapes` maps Olho Vivo "sentido" (1 or 2) to the
+// route as [[lat, lon], ...] in travel order.
+const newLine = (props) => ({ routes: [], shapes: {}, bounds: null, ...props });
+const busLineByCode = new Map(busConfig.lines.map((l) => [l.code, newLine(l)]));
 
-const busColor = () => getComputedStyle(document.documentElement).getPropertyValue('--bus').trim() || '#111';
+const lineColor = (line) => (line?.unusual ? LINE_COLORS.unusual : LINE_COLORS.expected);
 
 const OffsetPolyline = offsetPolylineClass(L);
 // Pixel offset of lane n: routes sit beside the street centre, right of travel
 // direction. Full size from zoom 15, shrinking when zoomed out so routes don't
-// drift away from their streets.
+// drift away from their streets. Lanes are assigned by scripts/build-data.mjs.
 const laneOffset = (lane, zoom) => (3.5 + lane * 5.5) * Math.min(1, Math.max(0.15, (zoom - 10) / 5));
+// Route width also shrinks when zoomed out, so dozens of lines stay readable.
+const routeWeight = (zoom) => (zoom >= 14 ? 5 : zoom >= 13 ? 4 : zoom >= 12 ? 3 : 2);
+map.on('zoomend', () => {
+  const weight = routeWeight(map.getZoom());
+  busRouteLayer.eachLayer((r) => r.setStyle({ weight }));
+});
+
+function addRoute(line, sentido, coordinates, lane, headsign) {
+  const latlngs = coordinates.map(([lon, lat]) => [lat, lon]);
+  if (latlngs.length < 2) return;
+  line.shapes[sentido] = latlngs;
+  const route = new OffsetPolyline(latlngs, {
+    renderer: busRouteRenderer,
+    weight: routeWeight(map.getZoom()),
+    opacity: 1,
+    offset: (zoom) => laneOffset(lane, zoom),
+    hatch: { base: lineColor(line), stripe: HATCH_COLOR },
+  }).bindTooltip(`${esc(line.code)}${headsign ? ` → ${esc(headsign)}` : ''}`, { sticky: true });
+  busRouteLayer.addLayer(route);
+  line.routes.push(route);
+  line.bounds = line.bounds ? line.bounds.extend(route.getBounds()) : route.getBounds();
+}
 
 function addBusRoutes(busGeo) {
-  const features = busGeo.features.filter((f) => busLineByCode.has(f.properties.code) && f.geometry.coordinates.length >= 2);
-  const shapesByCode = {};
-  for (const f of features) {
-    const latlngs = f.geometry.coordinates.map(([lon, lat]) => [lat, lon]);
-    busLineByCode.get(f.properties.code).shapes[f.properties.sentido] = latlngs;
-    (shapesByCode[f.properties.code] ??= []).push(latlngs);
-  }
-  const lanes = assignLanes(shapesByCode, (p, route) => headingOnRoute(p, route)?.distance ?? Infinity);
-
-  for (const f of features) {
+  for (const f of busGeo.features) {
     const line = busLineByCode.get(f.properties.code);
-    const route = new OffsetPolyline(line.shapes[f.properties.sentido], {
-      renderer: busRouteRenderer,
-      weight: 5,
-      opacity: 1,
-      offset: (zoom) => laneOffset(lanes[line.code], zoom),
-      hatch: { base: line.electric ? ROUTE_COLORS.electric : ROUTE_COLORS.other, stripe: ROUTE_COLORS.hatch },
-    }).bindTooltip(`${esc(line.code)} → ${esc(f.properties.headsign)}`, { sticky: true });
-    busRouteLayer.addLayer(route);
-    line.routes.push(route);
-    line.bounds = line.bounds ? line.bounds.extend(route.getBounds()) : route.getBounds();
+    if (line) addRoute(line, f.properties.sentido, f.geometry.coordinates, f.properties.lane ?? 0, f.properties.headsign);
   }
+}
+
+/** Fetches and draws the route of an unusual line (once). */
+async function loadUnusualRoute(line) {
+  if (line.routeRequested) return line.routeRequested;
+  line.routeRequested = getJson(`api/route?line=${encodeURIComponent(line.code)}`)
+    .then((data) => {
+      for (const d of data.directions ?? []) addRoute(line, d.sentido, d.coordinates, 0);
+    })
+    .catch((err) => console.warn(`route ${line.code} unavailable`, err));
+  return line.routeRequested;
+}
+
+function dropUnusualLine(line) {
+  for (const r of line.routes) busRouteLayer.removeLayer(r);
+  busLineByCode.delete(line.code);
 }
 
 // Bus stop: a bus seen from the front.
@@ -278,30 +300,49 @@ const busStopIcon = L.divIcon({
   iconAnchor: [7, 8],
 });
 
-function addBusStops(stopsGeo) {
-  for (const f of stopsGeo.features) {
-    const [lon, lat] = f.geometry.coordinates;
-    L.marker([lat, lon], { pane: 'busStops', icon: busStopIcon, keyboard: false })
-      .bindTooltip(esc(f.properties.name), { direction: 'top', offset: [0, -8] })
-      .bindPopup(() => {
-        const s = bikeStatus({ bikes: busConfig.rules.bikes });
-        const lines = f.properties.lines.map((code) => {
-          const n = state.buses.filter((b) => b.line === code).length;
-          return `<p style="margin:4px 0">${busBadge(code)} ${esc(busLineByCode.get(code)?.name ?? '')}${n ? ` · ${n} ônibus agora` : ''}</p>`;
-        });
-        return `<h3>Ponto: ${esc(f.properties.name)}</h3>${lines.join('')}
-          <p style="margin:6px 0 0"><span class="dot ${BUS_STATUS[s.status]}" style="vertical-align:-1px"></span> ${esc(s.detail)}</p>`;
-      })
-      .addTo(busStopLayer);
+// Thousands of stops: they're downloaded the first time someone zooms in with the
+// layer on, and only the ones in view are on the map.
+let busStops = null; // [marker]
+let busStopsLoading = null;
+
+function loadBusStops() {
+  busStopsLoading ??= getJson('data/bus-stops.geojson')
+    .then((geo) => {
+      busStops = geo.features.map((f) => {
+        const [lon, lat] = f.geometry.coordinates;
+        return L.marker([lat, lon], { pane: 'busStops', icon: busStopIcon, keyboard: false })
+          .bindTooltip(esc(f.properties.name), { direction: 'top', offset: [0, -8] })
+          .bindPopup(() => busStopPopup(f.properties));
+      });
+      showStopsInView();
+    })
+    .catch((err) => console.warn('bus stops unavailable', err));
+}
+
+function showStopsInView() {
+  if (!map.hasLayer(busStopGroup) || map.getZoom() < BUS_STOP_MIN_ZOOM) return;
+  if (!busStops) return loadBusStops();
+  const view = map.getBounds().pad(0.25);
+  for (const m of busStops) {
+    const inView = view.contains(m.getLatLng());
+    if (inView && !busStopLayer.hasLayer(m)) busStopLayer.addLayer(m);
+    else if (!inView && busStopLayer.hasLayer(m)) busStopLayer.removeLayer(m);
   }
+}
+map.on('moveend overlayadd', showStopsInView);
+
+function busStopPopup({ name, lines }) {
+  const s = bikeStatus({ bikes: busConfig.rules.bikes });
+  const rows = lines.map((code) => {
+    const n = state.buses.filter((b) => b.line === code).length;
+    return `<p style="margin:4px 0">${busBadge(code)} ${esc(busLineByCode.get(code)?.name ?? '')}${n ? ` · ${n} com suporte agora` : ''}</p>`;
+  });
+  return `<h3>Ponto: ${esc(name)}</h3>${rows.join('')}
+    <p style="margin:6px 0 0"><span class="dot ${BUS_STATUS[s.status]}" style="vertical-align:-1px"></span> ${esc(s.detail)}</p>`;
 }
 
 function busBadge(code) {
-  const electric = busLineByCode.get(code)?.electric;
-  const style = electric
-    ? `background:${ROUTE_COLORS.electric};color:#111;text-shadow:none`
-    : `background:${ROUTE_COLORS.other}`;
-  return `<span class="badge" style="${style}">${esc(code)}</span>`;
+  return `<span class="badge" style="background:${lineColor(busLineByCode.get(code))}">${esc(code)}</span>`;
 }
 
 // Side view of an articulated bus, front to the right, with a chevron on each
@@ -320,12 +361,12 @@ const busSvg = (body, ink) => `<svg class="bus-icon" viewBox="0 0 40 16" width="
 </svg>`;
 
 const busIcons = new Map();
-function busIcon(status, electric) {
-  const key = `${status}|${electric}`;
+function busIcon(status, unusual) {
+  const key = `${status}|${unusual}`;
   if (!busIcons.has(key)) {
     busIcons.set(key, L.divIcon({
       className: 'bus-marker',
-      html: busSvg(electric ? BUS_BODY.electric : BUS_BODY.other, BUS_INK[status]),
+      html: busSvg(unusual ? LINE_COLORS.unusual : LINE_COLORS.expected, BUS_INK[status]),
       iconSize: [40, 16],
       iconAnchor: [20, 8],
       popupAnchor: [0, -8],
@@ -357,8 +398,9 @@ const busMarkers = new Map(); // prefix -> marker
 function busPopup(bus, s) {
   const line = busLineByCode.get(bus.line);
   const seen = bus.at ? new Date(bus.at) : null;
-  return `<h3>${esc(bus.line)} → ${esc(bus.to)}</h3>
+  return `<h3>${busBadge(bus.line)} → ${esc(bus.to)}</h3>
     ${line?.name ? `<p style="margin:0">${esc(line.name)}</p>` : ''}
+    ${bus.expected ? '' : `<p style="margin:6px 0 0">⚠️ <b>Fora da rota habitual</b>: este ônibus com suporte para bici está rodando numa linha que normalmente não usa superarticulados.</p>`}
     <p style="margin:6px 0 0"><span class="dot ${BUS_STATUS[s.status]}" style="vertical-align:-1px"></span> <b>${STATUS_LABELS[s.status]}</b><br>${esc(s.detail)}</p>
     <p style="margin:6px 0 0">Prefixo ${esc(bus.prefix)}${bus.accessible ? ' · ♿ acessível' : ''}</p>
     ${seen ? `<p style="margin:0;color:var(--muted)">Posição das ${describeTime(seen)}</p>` : ''}
@@ -366,12 +408,54 @@ function busPopup(bus, s) {
     <p style="margin:6px 0 0;font-size:12px;color:var(--muted)">${esc(busConfig.rules.summary)}</p>`;
 }
 
+function lineItem(code, n) {
+  const line = busLineByCode.get(code);
+  const count = !state.busesLoaded ? 'carregando posições…'
+    : n ? `${n} ônibus com suporte agora` : 'nenhum ônibus com suporte agora';
+  return `<li data-code="${esc(code)}">
+    ${busBadge(code)}
+    <span><span class="name">${esc(line?.name ?? '')}</span>
+      <span class="detail">${count}</span>
+      ${line?.note ? `<span class="detail">⚠️ ${esc(line.note)}</span>` : ''}</span>
+  </li>`;
+}
+
 function renderBuses() {
   const s = bikeStatus({ bikes: busConfig.rules.bikes });
+  const counts = new Map();
+  for (const bus of state.buses) {
+    counts.set(bus.line, (counts.get(bus.line) ?? 0) + 1);
+    if (!bus.expected && !busLineByCode.has(bus.line)) {
+      busLineByCode.set(bus.line, newLine({ code: bus.line, name: `${bus.from} – ${bus.to}`, unusual: true }));
+    }
+  }
+  for (const line of [...busLineByCode.values()]) {
+    if (!line.unusual) continue;
+    if (counts.has(line.code)) loadUnusualRoute(line).then(() => renderBusMarkers(s));
+    else dropUnusualLine(line);
+  }
+  renderBusMarkers(s);
+
+  const byCount = (a, b) => (counts.get(b) ?? 0) - (counts.get(a) ?? 0) || a.localeCompare(b);
+  const expected = [...busLineByCode.values()].filter((l) => !l.unusual).map((l) => l.code).sort(byCount);
+  const unusual = [...busLineByCode.values()].filter((l) => l.unusual).map((l) => l.code).sort(byCount);
+  const active = expected.filter((c) => counts.has(c)).length;
+
+  $('#bus-count').textContent = state.busesLoaded && !state.busError ? `· ${state.buses.length} ao vivo` : '';
+  $('#bus-status').innerHTML = `<span class="dot ${BUS_STATUS[s.status]}" style="vertical-align:-1px"></span> ${esc(s.detail)}. `
+    + esc(busConfig.rules.summary)
+    + (state.busError ? `<br><b>Posições ao vivo indisponíveis</b> (${esc(state.busError)}).` : '');
+  $('#bus-unusual').hidden = !unusual.length;
+  $('#bus-unusual-list').innerHTML = unusual.map((c) => lineItem(c, counts.get(c))).join('');
+  $('#bus-lines-summary').textContent = `Linhas habituais (${active} de ${expected.length} com ônibus agora)`;
+  $('#bus-list').innerHTML = expected.map((c) => lineItem(c, counts.get(c))).join('');
+}
+
+function renderBusMarkers(s) {
   const seen = new Set();
   for (const bus of state.buses) {
     seen.add(bus.prefix);
-    const icon = busIcon(s.status, Boolean(busLineByCode.get(bus.line)?.electric));
+    const icon = busIcon(s.status, !bus.expected);
     let marker = busMarkers.get(bus.prefix);
     if (!marker) {
       marker = L.marker([bus.lat, bus.lon], { keyboard: false, icon })
@@ -390,37 +474,19 @@ function renderBuses() {
       busMarkers.delete(prefix);
     }
   }
-
-  const counts = new Map();
-  for (const bus of state.buses) counts.set(bus.line, (counts.get(bus.line) ?? 0) + 1);
-  const extraLines = [...counts.keys()].filter((c) => !busLineByCode.has(c));
-
-  $('#bus-count').textContent = state.busesLoaded && !state.busError ? `· ${state.buses.length} ao vivo` : '';
-  $('#bus-status').innerHTML = `<span class="dot ${BUS_STATUS[s.status]}" style="vertical-align:-1px"></span> ${esc(s.detail)}. `
-    + esc(busConfig.rules.summary)
-    + (state.busError ? `<br><b>Posições ao vivo indisponíveis</b> (${esc(state.busError)}).` : '');
-  $('#bus-list').innerHTML = [...busLines.map((l) => l.code), ...extraLines].map((code) => {
-    const line = busLineByCode.get(code);
-    const n = counts.get(code) ?? 0;
-    return `<li data-code="${esc(code)}">
-      ${busBadge(code)}
-      <span><span class="name">${esc(line?.name ?? 'Veículo com suporte')}</span>
-        <span class="detail">${!state.busesLoaded ? 'carregando posições…' : n ? `${n} ônibus agora` : 'nenhum ônibus em circulação agora'}${line?.electric ? ' · ⚡ elétrico' : ''}</span>
-        ${line?.note ? `<span class="detail">⚠️ ${esc(line.note)}</span>` : ''}</span>
-    </li>`;
-  }).join('');
 }
 
-$('#bus-list').addEventListener('click', (e) => {
-  const code = e.target.closest('li')?.dataset.code;
+$('#bus-section').addEventListener('click', async (e) => {
+  const code = e.target.closest('li[data-code]')?.dataset.code;
   const line = busLineByCode.get(code);
-  let bounds = line?.bounds;
+  if (!line) return;
+  if (line.unusual) await loadUnusualRoute(line);
+  let bounds = line.bounds;
   const markers = state.buses.filter((b) => b.line === code).map((b) => busMarkers.get(b.prefix)).filter(Boolean);
   for (const m of markers) bounds = bounds ? bounds.extend(m.getLatLng()) : L.latLngBounds([m.getLatLng()]);
   if (bounds) map.fitBounds(bounds, { padding: [40, 40], maxZoom: 15 });
-  const base = line?.routes[0]?.options.weight ?? 3;
-  for (const r of line?.routes ?? []) r.setStyle({ weight: base + 2 });
-  setTimeout(() => line?.routes.forEach((r) => r.setStyle({ weight: base })), 2500);
+  for (const r of line.routes) r.setStyle({ weight: routeWeight(map.getZoom()) + 3 });
+  setTimeout(() => line.routes.forEach((r) => r.setStyle({ weight: routeWeight(map.getZoom()) })), 2500);
 });
 
 async function refreshBuses() {
@@ -470,7 +536,6 @@ busGeoPromise.then((geo) => {
   addBusRoutes(geo);
   renderBuses();
 });
-busStopsPromise.then(addBusStops);
 setInterval(() => { renderClock(); renderRail(); }, CLOCK_REFRESH_MS);
 setInterval(refreshLive, RAIL_REFRESH_MS);
 setInterval(refreshBuses, BUS_REFRESH_MS);

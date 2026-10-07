@@ -25,25 +25,3 @@ function offsetRing(points, d, L) {
     return L.point(p.x - (dy / len) * d, p.y + (dx / len) * d);
   });
 }
-
-/**
- * Assigns a lane (0, 1, 2, …) to each line so that lines sharing streets get
- * different lanes. `shapes` maps line code to a list of [[lat, lon], ...] routes;
- * `distance(point, route)` returns metres from a point to a route.
- */
-export function assignLanes(shapes, distance, { nearMeters = 30, minShared = 0.1 } = {}) {
-  const codes = Object.keys(shapes);
-  const shares = (a, b) => {
-    const pts = shapes[a].flat().filter((_, i) => i % 3 === 0); // a sample is plenty
-    const near = pts.filter((p) => shapes[b].some((route) => distance(p, route) < nearMeters)).length;
-    return pts.length && near / pts.length >= minShared;
-  };
-  const lanes = {};
-  for (const code of codes) {
-    const taken = new Set(codes.filter((c) => c in lanes && (shares(code, c) || shares(c, code))).map((c) => lanes[c]));
-    let lane = 0;
-    while (taken.has(lane)) lane++;
-    lanes[code] = lane;
-  }
-  return lanes;
-}

@@ -1,15 +1,17 @@
-// GET /api/buses — live positions of the buses that carry bikes, from SPTrans Olho Vivo.
+// GET /api/buses — live positions of the buses with a bike rack, from SPTrans Olho Vivo.
+// Buses are picked by prefix from the fleet list (data/bike-fleet.json), wherever they run.
 // Needs the SPTRANS_TOKEN secret (free key from https://www.sptrans.com.br/desenvolvedores/).
 
 import { cachedJson } from '../_lib/cache.js';
 import { vehicleFilter } from '../_lib/vehicles.js';
-// Plain JSON import: the Pages build's bundler doesn't accept import attributes.
+// Plain JSON imports: the Pages build's bundler doesn't accept import attributes.
+import fleet from '../../data/bike-fleet.json';
 import config from '../../public/data/bike-buses.json';
 
 const API = 'https://api.olhovivo.sptrans.com.br/v2.1';
 const TTL = 20; // Olho Vivo refreshes positions every ~30–60 s.
 
-const selectVehicles = vehicleFilter(config);
+const selectVehicles = vehicleFilter(config, fleet.prefixes);
 
 // The session cookie survives between requests served by the same isolate.
 let credentials = null;

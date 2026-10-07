@@ -12,17 +12,20 @@ Mapa ao vivo dos ônibus e trilhos da Grande São Paulo que levam bicicleta, em
   O status sai dos horários de operação e das regras de bicicleta de cada operadora,
   combinados com o status operacional ao vivo das linhas. As estações aparecem a
   partir do zoom 12, com o símbolo do Metrô ou da CPTM.
-- **Ônibus SPTrans**: posição ao vivo (Olho Vivo), itinerário e pontos de parada das
-  linhas com superarticulados de 23 m, os únicos com suporte para bicicleta
+- **Ônibus SPTrans**: posição ao vivo (Olho Vivo) de todos os superarticulados de
+  23 m, os únicos com suporte para bicicleta
   ([Portaria SMT 32/2016](https://legislacao.prefeitura.sp.gov.br/leis/portaria-secretaria-municipal-de-mobilidade-e-transportes-32-de-7-de-maio-de-2016)).
+  Os superarticulados elétricos não têm suporte e ficam de fora.
   - Cada ônibus aparece de lado, com setas no corpo apontando o sentido da viagem.
-  - A cor do corpo indica o tipo de ônibus: verde para convencional, amarelo para
-    elétrico (`"electric": true` em `bike-buses.json`).
+  - 🟩 Verde: ônibus numa das linhas em que os superarticulados rodam normalmente,
+    com itinerário e pontos de parada no mapa.
+  - 🟪 Roxo: ônibus com suporte **fora da rota habitual**, rodando numa linha que
+    normalmente não usa superarticulados. O itinerário dessa linha aparece em roxo
+    e ela é listada à parte no painel.
   - O contorno indica a bicicleta: preto quando é permitida naquele horário,
     vermelho quando não é.
-  - Os itinerários são verdes (ou amarelos, se elétricos) com hachura preta e
-    ficam levemente deslocados, para que sentidos e linhas no mesmo corredor
-    apareçam lado a lado.
+  - Os itinerários têm hachura preta e ficam levemente deslocados, para que
+    sentidos e linhas no mesmo corredor apareçam lado a lado.
   - Os pontos de parada aparecem a partir do zoom 14.
 
 O controle de camadas, no canto superior direito, liga e desliga separadamente:
@@ -48,30 +51,41 @@ Paulo (25/1 e Corpus Christi). Carnaval é ponto facultativo e não entra.
 
 ## Quais ônibus aparecem
 
-A SPTrans não publica a lista de linhas atendidas por superarticulados. Em 2021 eram
-1.308 veículos em 94 linhas. A lista fica em
-[public/data/bike-buses.json](public/data/bike-buses.json) e ainda está incompleta.
-Para acrescentar:
+A SPTrans não publica quais ônibus têm suporte para bicicleta. Usamos o cadastro da
+frota (`assets/00_businfo_consolidado.csv`): os veículos da cidade de São Paulo do
+tipo "Articulado 23m" (cerca de 1.400) viram a lista de prefixos em
+[data/bike-fleet.json](data/bike-fleet.json), gerada por `npm run build:data -- fleet`.
+O tipo "E-Articulado 23m" (elétrico) fica de fora.
 
-- **uma linha:** use o código do letreiro, como `6450-10`, em `lines`;
-- **um veículo específico:** use o prefixo em `vehicles`.
+As linhas habituais desses ônibus ficam em
+[public/data/bike-buses.json](public/data/bike-buses.json). Para atualizar a lista
+com o que está rodando agora (de preferência num horário de pico):
+
+```sh
+node scripts/suggest-lines.mjs           # mostra as linhas e quantos superarticulados há em cada uma
+node scripts/suggest-lines.mjs --write   # acrescenta as linhas regulares (3+ ônibus e 20%+ da frota da linha)
+```
 
 ## Como funciona
 
 ```
-public/                     site estático (Leaflet)
-  data/rail-lines.json      linhas, cores, horários de operação e regras de bicicleta
-  data/bike-buses.json      linhas de ônibus com suporte e regras da SPTrans
-  data/rail.geojson         trilhos e estações (gerado, OpenStreetMap)
-  data/bus-routes.geojson   itinerários (gerado, GTFS SPTrans)
-  data/bus-stops.geojson    pontos de parada dessas linhas (gerado, GTFS SPTrans)
-functions/api/buses.js      proxy do Olho Vivo: filtra os ônibus com bici (cache de 20 s)
+public/                       site estático (Leaflet)
+  data/rail-lines.json        linhas, cores, horários de operação e regras de bicicleta
+  data/bike-buses.json        linhas habituais dos superarticulados e regras da SPTrans
+  data/rail.geojson           trilhos e estações (gerado, OpenStreetMap)
+  data/bus-routes.geojson     itinerários das linhas habituais (gerado, GTFS SPTrans)
+  data/bus-stops.geojson      pontos de parada dessas linhas (gerado, GTFS SPTrans)
+data/bike-fleet.json          prefixos dos ônibus com suporte (gerado, cadastro da frota)
+functions/api/buses.js        proxy do Olho Vivo: só os ônibus da frota com suporte (cache de 20 s)
+functions/api/route.js        itinerário de qualquer linha, via GeoSampa (cache de 1 dia)
 functions/api/rail-status.js  status ao vivo das linhas (feed usado por trilhos.motiva.com.br, cache de 60 s)
-scripts/build-data.mjs      gera os .geojson (simplificados a ~2 m)
+scripts/build-data.mjs        gera os arquivos de dados (geometrias simplificadas a ~2 m)
+scripts/suggest-lines.mjs     sugere linhas habituais a partir das posições ao vivo
 ```
 
-As funções existem porque nem o Olho Vivo nem o feed de status aceitam chamadas
-diretas do navegador (não têm CORS), e o token da SPTrans precisa ficar no servidor.
+As funções existem porque nem o Olho Vivo, nem o feed de status, nem o GeoSampa
+aceitam chamadas diretas do navegador (não têm CORS), e o token da SPTrans precisa
+ficar no servidor.
 
 O workflow [refresh-data](.github/workflows/refresh-data.yml) regenera os `.geojson`
 toda segunda-feira e sempre que as listas de linhas mudam.

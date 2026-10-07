@@ -1,19 +1,25 @@
-// Picks the bike-carrying buses out of an Olho Vivo /Posicao snapshot.
-// Kept free of the JSON config import so Node tests can load it directly.
+// Picks the bike-rack buses out of an Olho Vivo /Posicao snapshot.
+// Kept free of JSON imports so Node tests can load it directly.
 
-export function vehicleFilter(config) {
-  const lines = new Set(config.lines.map((l) => l.code));
-  const prefixes = new Set(config.vehicles.map(String));
+/**
+ * `prefixes` lists the buses with a bike rack (data/bike-fleet.json);
+ * `config` is public/data/bike-buses.json, whose `lines` are the expected lines.
+ */
+export function vehicleFilter(config, prefixes) {
+  const expected = new Set(config.lines.map((l) => l.code));
+  const fleet = new Set(prefixes.map(String));
 
   return function selectVehicles(snapshot) {
     const vehicles = [];
     for (const line of snapshot.l ?? []) {
-      const listed = lines.has(line.c);
       for (const v of line.vs ?? []) {
-        if (!listed && !prefixes.has(String(v.p))) continue;
+        const prefix = String(v.p);
+        if (!fleet.has(prefix)) continue;
         vehicles.push({
-          prefix: String(v.p),
+          prefix,
           line: line.c,
+          // False when the bus is running a line it doesn't usually serve.
+          expected: expected.has(line.c),
           sentido: line.sl,
           // lt0/lt1 are the line's destination/origin signs in sentido 1.
           to: line.sl === 1 ? line.lt0 : line.lt1,

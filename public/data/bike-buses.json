@@ -1,5 +1,5 @@
 {
-  "_comment": "Ônibus municipais (SPTrans) que levam bicicleta. Pela Portaria SMT 32/2016 só os superarticulados de 23 m têm suporte (adesivo verde no para-brisa), e a SPTrans não publica quais linhas os usam. Adicione linhas em 'lines' (código do letreiro, ex. 6450-10) ou veículos específicos em 'vehicles' (prefixo, ex. 21501). Marque \"electric\": true nas linhas operadas com ônibus elétricos (a API não informa o tipo de veículo).",
+  "_comment": "Ônibus municipais (SPTrans) que levam bicicleta. Pela Portaria SMT 32/2016 só os superarticulados de 23 m têm suporte (adesivo verde no para-brisa). Os veículos vêm de data/bike-fleet.json (frota 'Articulado 23m', sem os elétricos). 'lines' são as linhas em que esses ônibus rodam normalmente: têm itinerário e pontos no mapa. Um ônibus com suporte em outra linha aparece como 'fora da rota habitual'. Para atualizar a lista: node scripts/suggest-lines.mjs --write.",
   "rules": {
     "source": "https://legislacao.prefeitura.sp.gov.br/leis/portaria-secretaria-municipal-de-mobilidade-e-transportes-32-de-7-de-maio-de-2016",
     "summary": "Embarque pela porta traseira, prenda a bici no suporte e pague a tarifa. Uma bicicleta por ônibus. Dias úteis 10h01–15h59 e 19h01–5h59; sábados a partir das 14h; domingos e feriados o dia todo.",
@@ -44,6 +44,290 @@
   },
   "lines": [
     {
+      "code": "1178-10",
+      "name": "São Miguel - Pça. Do Correio"
+    },
+    {
+      "code": "1178-31",
+      "name": "São Miguel - Pça. Do Correio"
+    },
+    {
+      "code": "129F-10",
+      "name": "Conexão Petrônio Portela - Metrô Barra Funda"
+    },
+    {
+      "code": "175T-10",
+      "name": "Metrô Santana - Metrô Jabaquara"
+    },
+    {
+      "code": "189L-10",
+      "name": "Conexão Vl. Iório - Lapa"
+    },
+    {
+      "code": "208V-10",
+      "name": "Term. A. E. Carvalho - Term. Pq. D. Pedro Ii"
+    },
+    {
+      "code": "209P-1",
+      "name": "Cachoeirinha - Term. Pinheiros"
+    },
+    {
+      "code": "209P-10",
+      "name": "Cachoeirinha - Term. Pinheiros"
+    },
+    {
+      "code": "2552-10",
+      "name": "Vl. Mara - Term. Pq. D. Pedro Ii"
+    },
+    {
+      "code": "2582-10",
+      "name": "Vl. Nova Curuçá - Term. Pq. D. Pedro Ii"
+    },
+    {
+      "code": "3141-10",
+      "name": "São Mateus - Term. Pq. D. Pedro Ii"
+    },
+    {
+      "code": "3301-10",
+      "name": "Term. São Miguel - Term. Pq. D. Pedro Ii"
+    },
+    {
+      "code": "3390-10",
+      "name": "São Mateus - Term. Pq. D. Pedro Ii"
+    },
+    {
+      "code": "354M-10",
+      "name": "Term. São Miguel - Term. São Mateus"
+    },
+    {
+      "code": "3746-10",
+      "name": "Jd. Imperador - Metrô Belém"
+    },
+    {
+      "code": "4210-10",
+      "name": "Term. Cid. Tiradentes - Term. Pq. D. Pedro Ii"
+    },
+    {
+      "code": "4310-10",
+      "name": "E.T. Itaquera – Pq. D. Pedro II"
+    },
+    {
+      "code": "4311-10",
+      "name": "Term. São Mateus - Term. Pq. D. Pedro Ii"
+    },
+    {
+      "code": "4313-10",
+      "name": "Term. Cid. Tiradentes - Term. Pq. D. Pedro Ii"
+    },
+    {
+      "code": "475R-10",
+      "name": "Jd. São Savério - Term. Pq. D. Pedro Ii"
+    },
+    {
+      "code": "477A-10",
+      "name": "Sacomã - Term. Pinheiros"
+    },
+    {
+      "code": "5105-10",
+      "name": "Term. Sacomã - Term. Mercado"
+    },
+    {
+      "code": "5107-10",
+      "name": "Term. Sacomã - Pça. Do Correio"
+    },
+    {
+      "code": "5108-10",
+      "name": "Jd. Celeste - Term. Pq. D. Pedro Ii"
+    },
+    {
+      "code": "5109-10",
+      "name": "Term. Vl. Prudente - Term. Mercado"
+    },
+    {
+      "code": "5110-24",
+      "name": "São Mateus - Term. Vl. Prudente"
+    },
+    {
+      "code": "5111-10",
+      "name": "Term. Sto. Amaro - Term. Pq. D. Pedro Ii"
+    },
+    {
+      "code": "5119-10",
+      "name": "Term. Capelinha - Lgo. São Francisco"
+    },
+    {
+      "code": "5141-10",
+      "name": "Term. Sapopemba - Pça. Do Correio"
+    },
+    {
+      "code": "5143-10",
+      "name": "Term. Sapopemba - Term. Pq. D. Pedro Ii"
+    },
+    {
+      "code": "5144-10",
+      "name": "Term. Sapopemba - Term. Princ. Isabel"
+    },
+    {
+      "code": "516N-10",
+      "name": "Jd. Miriam - Pça. D. Gastão"
+    },
+    {
+      "code": "5178-10",
+      "name": "Jd. Miriam - Pça. João Mendes"
+    },
+    {
+      "code": "5300-10",
+      "name": "Term. Sto. Amaro - Term. Pq. D. Pedro Ii"
+    },
+    {
+      "code": "5318-10",
+      "name": "Chác. Santana - Pça. Da Sé"
+    },
+    {
+      "code": "5370-10",
+      "name": "Term. Varginha - Lgo. São Francisco"
+    },
+    {
+      "code": "5391-10",
+      "name": "Jd. âNgela - Lgo. São Francisco"
+    },
+    {
+      "code": "5630-10",
+      "name": "Term. Grajaú - Metrô Brás"
+    },
+    {
+      "code": "6001-10",
+      "name": "Term. Capelinha - Term. Sto. Amaro"
+    },
+    {
+      "code": "6003-10",
+      "name": "Term. Grajaú - Term. Varginha"
+    },
+    {
+      "code": "6003-21",
+      "name": "Term. Varginha - Est. Mendes/vl. Natal"
+    },
+    {
+      "code": "6048-10",
+      "name": "Capão Redondo - Sto. Amaro"
+    },
+    {
+      "code": "607C-10",
+      "name": "Jd. Miriam - Itaim Bibi"
+    },
+    {
+      "code": "6082-10",
+      "name": "Conexão Terminais - Conexão Terminais"
+    },
+    {
+      "code": "609F-10",
+      "name": "Chác. Santana - Term. Princ. Isabel"
+    },
+    {
+      "code": "6200-10",
+      "name": "Term. Sto. Amaro - Term. Bandeira"
+    },
+    {
+      "code": "637A-10",
+      "name": "Term. Jd. âNgela - Term. Pinheiros"
+    },
+    {
+      "code": "637G-10",
+      "name": "Grajaú - Pinheiros"
+    },
+    {
+      "code": "6403-10",
+      "name": "Term. João Dias - Term. Pq. D. Pedro Ii"
+    },
+    {
+      "code": "6451-10",
+      "name": "Term. Capelinha - Term. Bandeira"
+    },
+    {
+      "code": "6455-10",
+      "name": "Term. Capelinha - Lgo. São Francisco"
+    },
+    {
+      "code": "648P-10",
+      "name": "Term. Capelinha - Term. Pinheiros"
+    },
+    {
+      "code": "6505-10",
+      "name": "Term. Guarapiranga - Term. Bandeira"
+    },
+    {
+      "code": "675I-10",
+      "name": "Term. João Dias - Metrô São Judas"
+    },
+    {
+      "code": "675K-10",
+      "name": "Term. Jd. âNgela - Metrô Sta. Cruz"
+    },
+    {
+      "code": "675X-10",
+      "name": "Term. Grajaú - Aacd-servidor"
+    },
+    {
+      "code": "677A-10",
+      "name": "Term. Jd. âNgela - Itaim Bibi"
+    },
+    {
+      "code": "6805-10",
+      "name": "Term. Capelinha - Term. João Dias"
+    },
+    {
+      "code": "6825-10",
+      "name": "Valo Velho - Term. Capelinha"
+    },
+    {
+      "code": "6835-10",
+      "name": "Valo Velho - Term. Capelinha"
+    },
+    {
+      "code": "6913-10",
+      "name": "Term. Varginha - Term. Bandeira"
+    },
+    {
+      "code": "6913-21",
+      "name": "Term. Varginha - Itaim Bibi"
+    },
+    {
+      "code": "695X-10",
+      "name": "Term. Varginha - Metrô Jabaquara"
+    },
+    {
+      "code": "6960-10",
+      "name": "Term. Varginha - Term. Sto. Amaro"
+    },
+    {
+      "code": "6970-10",
+      "name": "Term. Grajaú - Term. Sto. Amaro"
+    },
+    {
+      "code": "7060-10",
+      "name": "Valo Velho - Term. Campo Limpo"
+    },
+    {
+      "code": "715M-10",
+      "name": "Jd. Maria Luiza - Lgo. Da Pólvora"
+    },
+    {
+      "code": "737A-10",
+      "name": "Term. Jd. âNgela - Term. Sto. Amaro"
+    },
+    {
+      "code": "7550-10",
+      "name": "Term. Sto. Amaro - Metrô Sta. Cecília"
+    },
+    {
+      "code": "8050-10",
+      "name": "Pq. Morro Doce - Lapa"
+    },
+    {
+      "code": "807A-10",
+      "name": "Term. Campo Limpo - Term. Sto. Amaro"
+    },
+    {
       "code": "809P-10",
       "name": "Term. Campo Limpo – Pinheiros",
       "source": "https://prefeitura.sp.gov.br/w/noticia/vinte-onibus-superarticulados-comecam-a-circular"
@@ -54,16 +338,28 @@
       "source": "https://prefeitura.sp.gov.br/w/noticia/vinte-onibus-superarticulados-comecam-a-circular"
     },
     {
-      "code": "4310-10",
-      "name": "E.T. Itaquera – Pq. D. Pedro II"
+      "code": "857R-10",
+      "name": "Term. Campo Limpo - Aclimação"
     },
     {
-      "code": "3459-10",
-      "name": "Itaim Paulista – Pq. D. Pedro II",
-      "note": "Superarticulados elétricos desde 2026; confirmar se têm suporte para bicicleta.",
-      "source": "https://diariodotransporte.com.br/2026/02/07/zona-leste-de-sao-paulo-ja-tem-linha-definida-para-esteia-de-onibus-eletricos-superarticulados-ineditos-com-tecnologia-da-f1-conheca-os-veiculos/",
-      "electric": true
+      "code": "8600-10",
+      "name": "Term. Pirituba - Lgo. Do Paissandu"
+    },
+    {
+      "code": "8622-10",
+      "name": "Morro Doce - Pça. Ramos De Azevedo"
+    },
+    {
+      "code": "8700-1",
+      "name": "Term. Campo Limpo - Pça. Ramos De Azevedo"
+    },
+    {
+      "code": "8700-10",
+      "name": "Term. Campo Limpo - Pça. Ramos De Azevedo"
+    },
+    {
+      "code": "9501-10",
+      "name": "Term. Cachoeirinha - Lgo. Do Paissandu"
     }
-  ],
-  "vehicles": []
+  ]
 }

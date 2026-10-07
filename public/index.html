@@ -19,6 +19,7 @@
   <link rel="preload" href="data/rail-lines.json" as="fetch" crossorigin>
   <link rel="preload" href="data/bike-buses.json" as="fetch" crossorigin>
   <link rel="preload" href="data/rail.geojson" as="fetch" crossorigin>
+  <link rel="preload" href="data/bus-routes.geojson" as="fetch" crossorigin>
   <link rel="preconnect" href="https://tile.openstreetmap.org">
 </head>
 <body>
@@ -45,10 +46,22 @@
         <ul id="rail-list" class="lines"></ul>
       </section>
 
-      <section>
+      <section id="bus-section">
         <h2>Ônibus <span id="bus-count" class="count"></span></h2>
+        <ul class="legend">
+          <li><span class="swatch" style="background:#16a34a"></span>Superarticulado com suporte para bici</li>
+          <li><span class="swatch" style="background:#9333ea"></span>Fora da rota habitual</li>
+          <li><span class="swatch outline"></span>Contorno preto: bici liberada agora · vermelho: fora do horário</li>
+        </ul>
         <p id="bus-status" class="note"></p>
-        <ul id="bus-list" class="lines"></ul>
+        <div id="bus-unusual" hidden>
+          <h3 class="subhead">Fora da rota habitual</h3>
+          <ul id="bus-unusual-list" class="lines"></ul>
+        </div>
+        <details id="bus-lines">
+          <summary id="bus-lines-summary">Linhas habituais</summary>
+          <ul id="bus-list" class="lines"></ul>
+        </details>
       </section>
 
       <footer>

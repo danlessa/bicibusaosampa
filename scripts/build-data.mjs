@@ -1,10 +1,11 @@
 #!/usr/bin/env node
-// Builds the static map layers in public/data/:
-//   rail.geojson        tracks and stations of metro/train lines, from OpenStreetMap (Overpass)
-//   bus-routes.geojson  routes of the bike-carrying bus lines, from the SPTrans GTFS
-//   bus-stops.geojson   stops served by those lines, from the SPTrans GTFS
+// Builds the data files:
+//   public/data/rail.geojson        metro/train tracks and stations, from OpenStreetMap (Overpass)
+//   public/data/bus-routes.geojson  routes of the expected bike-bus lines, from the SPTrans GTFS
+//   public/data/bus-stops.geojson   stops served by those lines, from the SPTrans GTFS
+//   data/bike-fleet.json            SPTrans buses with a bike rack, from the fleet CSV in assets/
 //
-// Usage: node scripts/build-data.mjs [rail|bus]   (default: both)
+// Usage: node scripts/build-data.mjs [rail|bus|fleet]   (default: all)
 // Downloads are cached in .cache/ for a day; delete it to force a refresh.
 
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
@@ -12,8 +13,16 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { unzipSync, strFromU8 } from 'fflate';
 
+import { round, simplify } from '../functions/_lib/geometry.js';
+import { assignLanes } from './lanes.mjs';
+
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const DATA = join(ROOT, 'public', 'data');
+const FLEET_CSV = join(ROOT, 'assets', '00_businfo_consolidado.csv');
+const FLEET_JSON = join(ROOT, 'data', 'bike-fleet.json');
+// Vehicle types with a bike rack: the 23 m superarticulated buses ("Articulado 23m").
+// The electric "E-Articulado 23m" (eA3) has no rack and is left out.
+const BIKE_TYPES = new Set(['A23']);
 const CACHE = join(ROOT, '.cache');
 const DAY = 86_400_000;
 
@@ -31,34 +40,6 @@ const GTFS_URLS = [
 // Greater São Paulo (south, west, north, east), including Jundiaí for line 7.
 const RMSP_BBOX = '-24.1,-47.2,-23.1,-46.0';
 
-const round = (x) => Math.round(x * 1e5) / 1e5;
-
-// Douglas–Peucker simplification of [lon, lat] points. The tolerance (~2 m) is
-// invisible on the map and roughly halves the file sizes.
-const SIMPLIFY_TOLERANCE = 0.00002;
-
-function simplify(pts, tol = SIMPLIFY_TOLERANCE) {
-  if (pts.length < 3) return pts;
-  const keep = new Uint8Array(pts.length);
-  keep[0] = keep[pts.length - 1] = 1;
-  const stack = [[0, pts.length - 1]];
-  while (stack.length) {
-    const [a, b] = stack.pop();
-    const [ax, ay] = pts[a], [bx, by] = pts[b];
-    const dx = bx - ax, dy = by - ay;
-    const len = Math.hypot(dx, dy) || Number.EPSILON;
-    let max = 0, idx = -1;
-    for (let i = a + 1; i < b; i++) {
-      const d = Math.abs(dy * pts[i][0] - dx * pts[i][1] + bx * ay - by * ax) / len;
-      if (d > max) { max = d; idx = i; }
-    }
-    if (max > tol) {
-      keep[idx] = 1;
-      stack.push([a, idx], [idx, b]);
-    }
-  }
-  return pts.filter((_, i) => keep[i]);
-}
 
 async function readJson(path) {
   return JSON.parse(await readFile(path, 'utf8'));
@@ -230,6 +211,12 @@ async function buildBus() {
     },
   }));
 
+  // Lanes keep lines that share streets apart on the map (see public/js/offset.js).
+  const byCode = {};
+  for (const f of features) (byCode[f.properties.code] ??= []).push(f.geometry.coordinates);
+  const lanes = assignLanes(byCode);
+  for (const f of features) f.properties.lane = lanes[f.properties.code];
+
   const found = new Set(trips.map((t) => t.route_id));
   const missing = [...wanted].filter((c) => !found.has(c));
   if (missing.length) console.warn(`  line(s) not in GTFS: ${missing.join(', ')}`);
@@ -255,6 +242,34 @@ async function buildBus() {
   console.log(`  wrote bus-stops.geojson: ${stops.length} stops`);
 }
 
+// ---------------------------------------------------------------- fleet (CSV)
+
+async function buildFleet() {
+  let text;
+  try {
+    text = await readFile(FLEET_CSV, 'utf8');
+  } catch {
+    console.log(`Fleet: ${FLEET_CSV} not found, keeping data/bike-fleet.json`);
+    return;
+  }
+  console.log('Fleet: reading the SPTrans fleet CSV');
+  const [header, ...rows] = text.split(/\r?\n/).filter(Boolean).map((l) => l.split(';'));
+  const col = Object.fromEntries(header.map((h, i) => [h.trim(), i]));
+  const prefixes = new Set();
+  for (const r of rows) {
+    if (r[col.cidade] === 'SP' && BIKE_TYPES.has(r[col.tipo])) prefixes.add(r[col.prefixo]);
+  }
+  const sorted = [...prefixes].sort((a, b) => a.localeCompare(b));
+  await mkdir(dirname(FLEET_JSON), { recursive: true });
+  await writeFile(FLEET_JSON, `${JSON.stringify({
+    _comment: 'Gerado por scripts/build-data.mjs a partir do cadastro da frota (assets/00_businfo_consolidado.csv, fora do git): prefixos dos ônibus SPTrans "Articulado 23m" (superarticulados com suporte para bicicleta).',
+    types: [...BIKE_TYPES],
+    count: sorted.length,
+    prefixes: sorted,
+  })}\n`);
+  console.log(`  wrote data/bike-fleet.json: ${sorted.length} vehicles`);
+}
+
 // A failed download keeps the previously committed file, so a flaky upstream
 // (Overpass is often overloaded) never wipes a layer.
 async function run(name, build) {
@@ -269,3 +284,4 @@ async function run(name, build) {
 const which = process.argv[2];
 if (!which || which === 'rail') await run('rail', buildRail);
 if (!which || which === 'bus') await run('bus', buildBus);
+if (!which || which === 'fleet') await run('fleet', buildFleet);
