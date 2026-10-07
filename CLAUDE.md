@@ -43,9 +43,15 @@ To check UI changes, run the dev server and take screenshots with Playwright. Us
   buses. Electric `eA3` buses have no rack and are excluded. Server-side only.
   `assets/` is gitignored: only the bus numbers are tracked. Rebuild the list locally
   (`npm run build:data -- fleet`) when the CSV is updated; elsewhere the step is skipped.
-- `functions/api/buses.js`: Olho Vivo proxy. Logs in with `SPTRANS_TOKEN` and keeps the
-  `/Posicao` vehicles whose prefix is in the fleet list, wherever they run; each gets
-  `expected: false` when its line isn't in `bike-buses.json`.
+- `functions/api/buses.js`: keeps the `/Posicao` vehicles whose prefix is in the fleet
+  list, wherever they run; each gets `expected: false` when its line isn't in
+  `bike-buses.json`. In production the snapshot comes from the relay
+  (`OLHOVIVO_RELAY_URL` + `OLHOVIVO_RELAY_KEY`); without those (local dev) it logs in
+  to Olho Vivo directly with `SPTRANS_TOKEN`.
+- `relay/`: tiny Node service on Cloud Run (GCP project `bicisampa`,
+  `southamerica-east1`, service `olhovivo-relay`). `GET /posicao` with `X-Relay-Key`
+  returns the raw `/Posicao` JSON, cached 15 s. Secrets in Secret Manager:
+  `sptrans-token`, `relay-key`. Deploy command in `relay/README.md`.
 - `functions/api/route.js`: route of any line from GeoSampa WFS (`geoportal:linha_onibus`),
   the fallback for off-route lines missing from `data/lines/`. Cached a day.
 - `functions/api/rail-status.js`: proxy for the Motiva line-status feed, which covers
@@ -65,9 +71,14 @@ To check UI changes, run the dev server and take screenshots with Playwright. Us
   commit or push when asked.
 - **A GitHub Action commits regenerated data** ("Atualiza camadas do mapa") every Monday
   and whenever a config file changes. Pull before you push.
-- **`SPTRANS_TOKEN`** lives in `.env` locally (gitignored) and as a Pages production
-  secret. Pages only picks up a new secret on the next deployment.
+- **Secrets:** `SPTRANS_TOKEN` lives in `.env` locally (gitignored), in Secret Manager
+  (`sptrans-token`, for the relay) and as a Pages secret. Pages also has
+  `OLHOVIVO_RELAY_URL` and `OLHOVIVO_RELAY_KEY`. Pages only picks up a new secret on
+  the next deployment.
+- **Cloud Run reserves paths ending in `z`** (e.g. `/healthz`); the relay uses `/health`.
 - **Olho Vivo** (`api.olhovivo.sptrans.com.br/v2.1`):
+  - Blocks requests from Cloudflare Workers since ~2026-10 (HTTP 403, Cloudflare error
+    1106), hence the relay on GCP. Google Cloud egress isn't blocked.
   - No CORS; the login cookie only works server-side.
   - `/Login/Autenticar` returns `false` for any bad token, with no detail.
   - `/Posicao` has no vehicle-type or bike-rack field.

@@ -12,6 +12,7 @@
   <!-- Fetch everything app.js needs up front instead of discovering it import by import. -->
   <link rel="modulepreload" href="js/heading.js">
   <link rel="modulepreload" href="js/offset.js">
+  <link rel="modulepreload" href="js/parking.js">
   <link rel="modulepreload" href="js/rail.js">
   <link rel="modulepreload" href="js/schedule.js">
   <link rel="modulepreload" href="js/time.js">
@@ -64,9 +65,24 @@
         </details>
       </section>
 
+      <section id="parking-section">
+        <h2>Bicicletários e paraciclos</h2>
+        <ul class="legend">
+          <li><span class="dot" style="background:#16a34a"></span>Livre: gratuito, sem cadastro</li>
+          <li><span class="dot" style="background:#2563eb"></span>Com cadastro no local (gratuito, documento com foto)</li>
+          <li><span class="dot" style="background:#db2777"></span>Pago</li>
+          <li><span class="dot" style="background:#78716c"></span>Só clientes ou autorizados</li>
+          <li><span class="dot closed"></span>Fechado agora</li>
+        </ul>
+        <ul class="legend shapes">
+          <li><span data-parking-shape="bicicletario"></span>Bicicletário: coberto, quase sempre com controle de entrada (a partir do zoom 12)</li>
+          <li><span data-parking-shape="paraciclo"></span>Paraciclo: suporte para prender a bici (a partir do zoom 14)</li>
+        </ul>
+      </section>
+
       <footer>
         <p>Bicicletas dobráveis podem ser levadas a qualquer hora nos trilhos. Confira sempre as regras na estação.</p>
-        <p><a href="https://github.com/danlessa/bicibusaosampa">Código-fonte</a> · Dados: SPTrans Olho Vivo, © OpenStreetMap · Ícones Metrô e CPTM: <a href="https://commons.wikimedia.org/wiki/File:Metr%C3%B4-SP_icon.svg">Wikimedia Commons</a></p>
+        <p><a href="https://github.com/danlessa/bicibusaosampa">Código-fonte</a> · Dados: SPTrans Olho Vivo, © OpenStreetMap, GeoSampa · Ícones Metrô e CPTM: <a href="https://commons.wikimedia.org/wiki/File:Metr%C3%B4-SP_icon.svg">Wikimedia Commons</a></p>
       </footer>
     </div>
   </aside>

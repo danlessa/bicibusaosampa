@@ -82,7 +82,8 @@ public/                       site estático (Leaflet)
   data/lines/<código>.json    itinerário e pontos de cada linha da SPTrans, para as que
                               aparecem fora da rota habitual (gerado, GTFS SPTrans)
 data/bike-fleet.json          prefixos dos ônibus com suporte (gerado, cadastro da frota)
-functions/api/buses.js        proxy do Olho Vivo: só os ônibus da frota com suporte (cache de 20 s)
+functions/api/buses.js        só os ônibus da frota com suporte (cache de 20 s), via relay em produção
+relay/                        relay do Olho Vivo no Cloud Run: a SPTrans bloqueia o Cloudflare
 functions/api/route.js        itinerário via GeoSampa, para linhas que faltam no GTFS (cache de 1 dia)
 functions/api/rail-status.js  status ao vivo das linhas (feed usado por trilhos.motiva.com.br, cache de 60 s)
 scripts/build-data.mjs        gera os arquivos de dados (geometrias simplificadas a ~2 m)

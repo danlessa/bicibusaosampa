@@ -1,0 +1,8 @@
+{
+  "name": "bicibusaosampa-relay",
+  "private": true,
+  "type": "module",
+  "description": "Olho Vivo relay for Bici Busão Sampa (Cloud Run)",
+  "engines": { "node": ">=22" },
+  "scripts": { "start": "node server.mjs" }
+}

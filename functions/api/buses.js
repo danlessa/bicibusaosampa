@@ -1,6 +1,10 @@
 // GET /api/buses — live positions of the buses with a bike rack, from SPTrans Olho Vivo.
 // Buses are picked by prefix from the fleet list (data/bike-fleet.json), wherever they run.
-// Needs the SPTRANS_TOKEN secret (free key from https://www.sptrans.com.br/desenvolvedores/).
+//
+// SPTrans blocks requests from Cloudflare, so in production the snapshot comes through
+// the relay on Cloud Run (relay/), configured with OLHOVIVO_RELAY_URL and
+// OLHOVIVO_RELAY_KEY. Without them (local dev) it calls Olho Vivo directly with the
+// SPTRANS_TOKEN secret (free key from https://www.sptrans.com.br/desenvolvedores/).
 
 import { cachedJson } from '../_lib/cache.js';
 import { vehicleFilter } from '../_lib/vehicles.js';
@@ -41,13 +45,19 @@ async function get(path, token) {
   return res.json();
 }
 
+async function viaRelay(url, key) {
+  const res = await fetch(`${url.replace(/\/$/, '')}/posicao`, { headers: { 'X-Relay-Key': key } });
+  if (!res.ok) throw new Error(`relay: HTTP ${res.status} ${(await res.text()).slice(0, 120)}`);
+  return res.json();
+}
+
 export async function onRequestGet(context) {
-  const token = context.env.SPTRANS_TOKEN;
-  if (!token) {
-    return Response.json({ error: 'SPTRANS_TOKEN não configurado' }, { status: 503 });
+  const { SPTRANS_TOKEN: token, OLHOVIVO_RELAY_URL: relayUrl, OLHOVIVO_RELAY_KEY: relayKey } = context.env;
+  if (!(relayUrl && relayKey) && !token) {
+    return Response.json({ error: 'OLHOVIVO_RELAY_URL/KEY ou SPTRANS_TOKEN não configurados' }, { status: 503 });
   }
   return cachedJson(context, TTL, async () => {
-    const snapshot = await get('/Posicao', token);
+    const snapshot = relayUrl && relayKey ? await viaRelay(relayUrl, relayKey) : await get('/Posicao', token);
     return { updated: new Date().toISOString(), hr: snapshot.hr, vehicles: selectVehicles(snapshot) };
   });
 }

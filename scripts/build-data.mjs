@@ -4,9 +4,10 @@
 //   public/data/bus-routes.geojson  routes of the expected bike-bus lines, from the SPTrans GTFS
 //   public/data/bus-stops.geojson   stops served by those lines, from the SPTrans GTFS
 //   public/data/lines/<code>.json   route and stops of every SPTrans bus line, from the GTFS
+//   public/data/bike-parking.geojson bicicletários and paraciclos, from OSM and GeoSampa
 //   data/bike-fleet.json            SPTrans buses with a bike rack, from the fleet CSV in assets/
 //
-// Usage: node scripts/build-data.mjs [rail|bus|fleet]   (default: all)
+// Usage: node scripts/build-data.mjs [rail|bus|parking|fleet]   (default: all)
 // Downloads are cached in .cache/ for a day; delete it to force a refresh.
 
 import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
@@ -16,6 +17,7 @@ import { unzipSync, strFromU8 } from 'fflate';
 
 import { round, simplify } from '../functions/_lib/geometry.js';
 import { assignLanes } from './lanes.mjs';
+import { buildParking } from './parking.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const DATA = join(ROOT, 'public', 'data');
@@ -40,6 +42,9 @@ const GTFS_URLS = [
 
 // Greater São Paulo (south, west, north, east), including Jundiaí for line 7.
 const RMSP_BBOX = '-24.1,-47.2,-23.1,-46.0';
+// The 39 municipalities of the Região Metropolitana de São Paulo (OSM relation 2661855).
+const RMSP_AREA = 3_600_000_000 + 2_661_855;
+const GEOSAMPA_WFS = 'https://wfs.geosampa.prefeitura.sp.gov.br/geoserver/ows';
 
 
 async function readJson(path) {
@@ -75,6 +80,14 @@ async function firstOk(urls, init) {
 
 // ---------------------------------------------------------------- rail (OSM)
 
+function overpass(query) {
+  return firstOk(OVERPASS_ENDPOINTS, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': 'bicibusaosampa/1.0 (+https://github.com/danlessa/bicibusaosampa)' },
+    body: new URLSearchParams({ data: query }),
+  });
+}
+
 async function buildRail() {
   console.log('Rail: fetching OpenStreetMap routes');
   const { lines } = await readJson(join(DATA, 'rail-lines.json'));
@@ -89,13 +102,7 @@ async function buildRail() {
     out body;
     node(r.r:"stop_exit_only");
     out body;`;
-  const raw = await cached('overpass-rail.json', () =>
-    firstOk(OVERPASS_ENDPOINTS, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': 'bicibusaosampa/1.0 (+https://github.com/danlessa/bicibusaosampa)' },
-      body: new URLSearchParams({ data: query }),
-    }),
-  );
+  const raw = await cached('overpass-rail.json', () => overpass(query));
   const { elements } = JSON.parse(raw.toString('utf8'));
 
   const nodeTags = new Map(elements.filter((e) => e.type === 'node').map((e) => [e.id, e.tags ?? {}]));
@@ -270,6 +277,30 @@ async function buildBus() {
   console.log(`  wrote lines/: ${routes.size} line files`);
 }
 
+// ---------------------------------------------------------------- bike parking (OSM + GeoSampa)
+
+async function buildParkingLayer() {
+  console.log('Parking: fetching OpenStreetMap and GeoSampa');
+  const query = `
+    [out:json][timeout:180];
+    area(id:${RMSP_AREA})->.rmsp;
+    nwr["amenity"="bicycle_parking"](area.rmsp);
+    out center tags;`;
+  const osm = JSON.parse((await cached('overpass-parking.json', () => overpass(query))).toString('utf8'));
+  const wfs = new URL(GEOSAMPA_WFS);
+  wfs.search = new URLSearchParams({
+    service: 'WFS', version: '2.0.0', request: 'GetFeature', typeNames: 'geoportal:bicicletario_paraciclo',
+    outputFormat: 'application/json', srsName: 'EPSG:4326',
+  });
+  const city = JSON.parse((await cached('geosampa-parking.json', () => firstOk([wfs.href]))).toString('utf8'));
+
+  const features = buildParking(osm.elements ?? [], city.features ?? []);
+  if (features.length < 100) throw new Error(`only ${features.length} parking spots, upstream looks broken`);
+  await writeFile(join(DATA, 'bike-parking.geojson'), JSON.stringify({ type: 'FeatureCollection', features }));
+  const count = (key) => JSON.stringify(Object.groupBy(features, (f) => f.properties[key]), (k, v) => (Array.isArray(v) ? v.length : v));
+  console.log(`  wrote bike-parking.geojson: ${features.length} spots ${count('kind')} ${count('access')}`);
+}
+
 // ---------------------------------------------------------------- fleet (CSV)
 
 async function buildFleet() {
@@ -312,4 +343,5 @@ async function run(name, build) {
 const which = process.argv[2];
 if (!which || which === 'rail') await run('rail', buildRail);
 if (!which || which === 'bus') await run('bus', buildBus);
+if (!which || which === 'parking') await run('parking', buildParkingLayer);
 if (!which || which === 'fleet') await run('fleet', buildFleet);
