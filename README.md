@@ -17,15 +17,19 @@ Mapa ao vivo dos ônibus e trilhos da Grande São Paulo que levam bicicleta, em
   ([Portaria SMT 32/2016](https://legislacao.prefeitura.sp.gov.br/leis/portaria-secretaria-municipal-de-mobilidade-e-transportes-32-de-7-de-maio-de-2016)).
   Os superarticulados elétricos não têm suporte e ficam de fora.
   - Cada ônibus é uma caixa com uma seta apontando o sentido da viagem.
-  - 🟩 Verde: ônibus numa das linhas em que os superarticulados rodam normalmente,
-    com itinerário e pontos de parada no mapa.
-  - 🟪 Roxo: ônibus com suporte **fora da rota habitual**, rodando numa linha que
-    normalmente não usa superarticulados. O itinerário dessa linha aparece em roxo
+  - A cor do ônibus, do itinerário e do código da linha combina duas perguntas:
+
+    | | Linha habitual dos superarticulados | Fora da rota habitual |
+    |---|---|---|
+    | **Bici liberada agora** | 🟩 verde | 🟪 roxo |
+    | **Fora do horário da bici** | 🟨 amarelo | 🟧 laranja |
+
+  - "Linha habitual" é uma linha em que os superarticulados rodam normalmente, com
+    itinerário e pontos de parada no mapa. Um ônibus com suporte em outra linha
+    aparece como **fora da rota habitual**: o itinerário dessa linha é buscado na hora
     e ela é listada à parte no painel.
-  - O contorno indica a bicicleta: preto quando é permitida naquele horário,
-    vermelho quando não é.
-  - Os itinerários têm hachura preta e ficam levemente deslocados, para que
-    sentidos e linhas no mesmo corredor apareçam lado a lado.
+  - Os itinerários ficam levemente deslocados, para que sentidos e linhas no mesmo
+    corredor apareçam lado a lado.
   - Os pontos de parada aparecem a partir do zoom 14.
 
 O controle de camadas, no canto superior direito, liga e desliga separadamente:

@@ -30,7 +30,6 @@ To check UI changes, run the dev server and take screenshots with Playwright. Us
     - `schedule.js`: time-window engine.
     - `rail.js`: line status = timetable plus live override.
     - `heading.js`: bus direction of travel.
-    - `hatch.js`: canvas hatch-pattern renderer.
     - `offset.js`: polylines offset sideways by a zoom-dependent number of pixels.
   - `data/rail-lines.json`, `data/bike-buses.json`: **hand-edited** config (lines,
     colours, operating hours, bike rules, the *expected* lines of the rack buses).
@@ -101,12 +100,15 @@ To check UI changes, run the dev server and take screenshots with Playwright. Us
   is closed or stopped.
 - **Stations:** official Metrô or CPTM icons (`public/icons/`, from Wikimedia Commons),
   chosen by each line's `mode`.
-- **Bus icons:** a rounded box with a white arrow pointing the direction of travel.
-  The box is green on an expected line and purple when the bus runs off its usual
-  lines. The outline is black when bikes are allowed and red when they aren't.
-- **Bus routes:** green (expected) or purple (off-route), hatched black. They're offset
-  into lanes so both directions and shared corridors show side by side; offset and
-  width shrink when zoomed out.
+- **Bus colours** (icons, routes, badges) combine two questions: bikes allowed on buses
+  at this hour, and is this one of the line's usual superarticulated lines?
+  Allowed + usual = green, allowed + off-route = purple, outside hours + usual =
+  yellow, outside hours + off-route = orange.
+- **Bus icons:** a rounded box in the bus colour with a white arrow pointing the
+  direction of travel.
+- **Bus routes:** solid lines in the bus colour. They're offset into lanes so both
+  directions and shared corridors show side by side; offset and width shrink when
+  zoomed out.
 - **Bus stops:** a front-view bus icon, shown from zoom 14; downloaded on first zoom-in
   and only the ones in view are on the map.
 - **Layer control:** toggles rail lines, stations, bus routes, live buses and bus stops.

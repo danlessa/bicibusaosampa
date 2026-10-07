@@ -104,7 +104,6 @@ h2 { margin: 16px 0 8px; font-size: 13px; text-transform: uppercase; letter-spac
 .dot.ok { background: var(--ok); }
 .dot.wait { background: var(--wait); }
 .dot.closed { background: var(--closed); }
-.dot.ink { background: #1c1917; border-color: rgba(255, 255, 255, 0.5); }
 
 .lines li {
   display: flex;
@@ -193,6 +192,5 @@ footer a { color: var(--accent); }
   border-radius: 2px;
   border: 1.5px solid #1c1917;
 }
-.swatch.outline { background: transparent; border: 2px solid #1c1917; box-shadow: 0 0 0 2px #dc2626 inset; }
 .subhead { margin: 12px 0 4px; font-size: 13px; }
 #bus-lines summary { cursor: pointer; margin: 8px 0 4px; font-weight: 600; }

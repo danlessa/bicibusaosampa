@@ -10,7 +10,6 @@
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
   <link rel="stylesheet" href="style.css">
   <!-- Fetch everything app.js needs up front instead of discovering it import by import. -->
-  <link rel="modulepreload" href="js/hatch.js">
   <link rel="modulepreload" href="js/heading.js">
   <link rel="modulepreload" href="js/offset.js">
   <link rel="modulepreload" href="js/rail.js">
@@ -49,9 +48,10 @@
       <section id="bus-section">
         <h2>Ônibus <span id="bus-count" class="count"></span></h2>
         <ul class="legend">
-          <li><span class="swatch" style="background:#16a34a"></span>Superarticulado com suporte para bici</li>
-          <li><span class="swatch" style="background:#9333ea"></span>Fora da rota habitual</li>
-          <li><span class="swatch outline"></span>Contorno preto: bici liberada agora · vermelho: fora do horário</li>
+          <li><span class="swatch" style="background:#16a34a"></span>Bici liberada agora, linha habitual</li>
+          <li><span class="swatch" style="background:#9333ea"></span>Bici liberada agora, fora da rota habitual</li>
+          <li><span class="swatch" style="background:#eab308"></span>Fora do horário da bici, linha habitual</li>
+          <li><span class="swatch" style="background:#f97316"></span>Fora do horário da bici, fora da rota habitual</li>
         </ul>
         <p id="bus-status" class="note"></p>
         <div id="bus-unusual" hidden>

@@ -1,6 +1,5 @@
 // Bici Busão Sampa — live map of the buses and rail lines that carry bicycles in Greater São Paulo.
 
-import { hatchRenderer } from './hatch.js';
 import { headingOfMove, headingOnRoute, iconTransform } from './heading.js';
 import { offsetPolylineClass } from './offset.js';
 import { railStatus as lineStatus } from './rail.js';
@@ -12,14 +11,17 @@ const BUS_REFRESH_MS = 20_000;
 const CLOCK_REFRESH_MS = 15_000;
 
 const STATUS_COLORS = { ok: '#16a34a', wait: '#eab308', closed: '#dc2626' };
-// Bus lines and their buses: green on their usual line, purple when a bike-rack bus
-// runs a line it doesn't usually serve. Routes are hatched black.
-const LINE_COLORS = { expected: '#16a34a', unusual: '#9333ea' };
-const HATCH_COLOR = '#111111';
-// Bus icon silhouette = bike status: black when bikes are allowed, red when not.
+// Bus colours (icons, routes, badges) answer two questions at once: are bikes allowed
+// on buses at this hour, and does this line usually run superarticulated buses?
+//                 usual line          off its usual lines
+//   bikes allowed  green               purple
+//   outside hours  yellow              orange
 // Buses have no "closed" state.
-const BUS_INK = { ok: '#1c1917', wait: '#dc2626' };
-const BUS_STATUS = { ok: 'ink', wait: 'closed' }; // dot classes in the panel/popups
+const BUS_COLORS = {
+  ok: { expected: '#16a34a', unusual: '#9333ea' },
+  wait: { expected: '#eab308', unusual: '#f97316' },
+};
+const busColor = (status, unusual) => BUS_COLORS[status][unusual ? 'unusual' : 'expected'];
 const STATUS_LABELS = { ok: 'Bici liberada', wait: 'Fora do horário da bici', closed: 'Fechada' };
 
 const $ = (sel) => document.querySelector(sel);
@@ -40,7 +42,7 @@ map.createPane('tracks').style.zIndex = 405;
 // Wider click tolerance so the thin rails are easy to tap.
 const trackRenderer = L.canvas({ pane: 'tracks', tolerance: 6 });
 map.createPane('busRoutes').style.zIndex = 410;
-const busRouteRenderer = hatchRenderer(L, { pane: 'busRoutes' });
+const busRouteRenderer = L.canvas({ pane: 'busRoutes', tolerance: 4 });
 map.createPane('busStops').style.zIndex = 415;
 map.createPane('stations').style.zIndex = 420;
 
@@ -233,7 +235,9 @@ async function refreshLive() {
 const newLine = (props) => ({ routes: [], shapes: {}, bounds: null, ...props });
 const busLineByCode = new Map(busConfig.lines.map((l) => [l.code, newLine(l)]));
 
-const lineColor = (line) => (line?.unusual ? LINE_COLORS.unusual : LINE_COLORS.expected);
+// Bike status of buses right now ('ok' or 'wait'), refreshed by renderBuses().
+let busNow = 'ok';
+const lineColor = (line) => busColor(busNow, line?.unusual);
 
 const OffsetPolyline = offsetPolylineClass(L);
 // Pixel offset of lane n: routes sit beside the street centre, right of travel
@@ -256,7 +260,7 @@ function addRoute(line, sentido, coordinates, lane, headsign) {
     weight: routeWeight(map.getZoom()),
     opacity: 1,
     offset: (zoom) => laneOffset(lane, zoom),
-    hatch: { base: lineColor(line), stripe: HATCH_COLOR },
+    color: lineColor(line),
   }).bindTooltip(`${esc(line.code)}${headsign ? ` → ${esc(headsign)}` : ''}`, { sticky: true });
   busRouteLayer.addLayer(route);
   line.routes.push(route);
@@ -338,15 +342,15 @@ function busStopPopup({ name, lines }) {
     return `<p style="margin:4px 0">${busBadge(code)} ${esc(busLineByCode.get(code)?.name ?? '')}${n ? ` · ${n} com suporte agora` : ''}</p>`;
   });
   return `<h3>Ponto: ${esc(name)}</h3>${rows.join('')}
-    <p style="margin:6px 0 0"><span class="dot ${BUS_STATUS[s.status]}" style="vertical-align:-1px"></span> ${esc(s.detail)}</p>`;
+    <p style="margin:6px 0 0"><span class="dot ${s.status}" style="vertical-align:-1px"></span> ${esc(s.detail)}</p>`;
 }
 
 function busBadge(code) {
   return `<span class="badge" style="background:${lineColor(busLineByCode.get(code))}">${esc(code)}</span>`;
 }
 
-// A box in the line colour with an arrow pointing right; turned by iconTransform()
-// to point the way the bus is going. The outline shows the bike status.
+// A box in the bus colour with an arrow pointing right; turned by iconTransform()
+// to point the way the bus is going.
 const busSvg = (body, ink) => `<svg class="bus-icon" viewBox="0 0 26 14" width="26" height="14" aria-hidden="true">
   <rect x="1" y="1" width="24" height="12" rx="3" fill="${body}" stroke="${ink}" stroke-width="2"/>
   <path d="M6 7h11M13.5 3.6 17.5 7l-4 3.4" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
@@ -358,7 +362,7 @@ function busIcon(status, unusual) {
   if (!busIcons.has(key)) {
     busIcons.set(key, L.divIcon({
       className: 'bus-marker',
-      html: busSvg(unusual ? LINE_COLORS.unusual : LINE_COLORS.expected, BUS_INK[status]),
+      html: busSvg(busColor(status, unusual), '#1c1917'),
       iconSize: [26, 14],
       iconAnchor: [13, 7],
       popupAnchor: [0, -7],
@@ -393,7 +397,7 @@ function busPopup(bus, s) {
   return `<h3>${busBadge(bus.line)} → ${esc(bus.to)}</h3>
     ${line?.name ? `<p style="margin:0">${esc(line.name)}</p>` : ''}
     ${bus.expected ? '' : `<p style="margin:6px 0 0">⚠️ <b>Fora da rota habitual</b>: este ônibus com suporte para bici está rodando numa linha que normalmente não usa superarticulados.</p>`}
-    <p style="margin:6px 0 0"><span class="dot ${BUS_STATUS[s.status]}" style="vertical-align:-1px"></span> <b>${STATUS_LABELS[s.status]}</b><br>${esc(s.detail)}</p>
+    <p style="margin:6px 0 0"><span class="dot ${s.status}" style="vertical-align:-1px"></span> <b>${STATUS_LABELS[s.status]}</b><br>${esc(s.detail)}</p>
     <p style="margin:6px 0 0">Prefixo ${esc(bus.prefix)}${bus.accessible ? ' · ♿ acessível' : ''}</p>
     ${seen ? `<p style="margin:0;color:var(--muted)">Posição das ${describeTime(seen)}</p>` : ''}
     ${line?.note ? `<p style="margin:6px 0 0">⚠️ ${esc(line.note)}</p>` : ''}
@@ -414,6 +418,10 @@ function lineItem(code, n) {
 
 function renderBuses() {
   const s = bikeStatus({ bikes: busConfig.rules.bikes });
+  if (s.status !== busNow) {
+    busNow = s.status;
+    for (const line of busLineByCode.values()) line.routes.forEach((r) => r.setStyle({ color: lineColor(line) }));
+  }
   const counts = new Map();
   for (const bus of state.buses) {
     counts.set(bus.line, (counts.get(bus.line) ?? 0) + 1);
@@ -434,7 +442,7 @@ function renderBuses() {
   const active = expected.filter((c) => counts.has(c)).length;
 
   $('#bus-count').textContent = state.busesLoaded && !state.busError ? `· ${state.buses.length} ao vivo` : '';
-  $('#bus-status').innerHTML = `<span class="dot ${BUS_STATUS[s.status]}" style="vertical-align:-1px"></span> ${esc(s.detail)}. `
+  $('#bus-status').innerHTML = `<span class="dot ${s.status}" style="vertical-align:-1px"></span> ${esc(s.detail)}. `
     + esc(busConfig.rules.summary)
     + (state.busError ? `<br><b>Posições ao vivo indisponíveis</b> (${esc(state.busError)}).` : '');
   $('#bus-unusual').hidden = !unusual.length;
