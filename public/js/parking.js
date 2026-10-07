@@ -25,7 +25,9 @@ function until(end, now) {
 export function parkingStatus({ access, hours, kind }, date = new Date()) {
   if (hours === '24h') return { open: true, colorKey: access, detail: 'Aberto 24 horas' };
   if (!hours) {
-    const detail = kind === 'bicicletario' ? 'Horário não informado (em geral, o da estação ou terminal)' : null;
+    // Street stands are always reachable; station and terminal bicicletários follow the station.
+    const detail = access === 'cadastro' ? 'Horário não informado (em geral, o da estação ou terminal)'
+      : kind === 'bicicletario' ? 'Horário não informado' : null;
     return { open: null, colorKey: access, detail };
   }
   if (isActive(hours, date)) return { open: true, colorKey: access, detail: `Aberto até ${until(activeUntil(hours, date), date)}` };

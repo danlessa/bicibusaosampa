@@ -32,8 +32,22 @@ Mapa ao vivo dos ônibus e trilhos da Grande São Paulo que levam bicicleta, em
     deslocados, para que sentidos e linhas no mesmo corredor apareçam lado a lado.
   - Os pontos de parada aparecem a partir do zoom 14.
 
+- **Bicicletários e paraciclos** de toda a Grande SP (os 39 municípios da RMSP),
+  do OpenStreetMap e da lista oficial da Prefeitura (GeoSampa). O bicicletário
+  (casinha) aparece a partir do zoom 12, e o paraciclo (círculo) a partir do 14. A cor diz
+  se dá para deixar a bici ali agora, e em que condições:
+  - 🟢 verde: livre, gratuito e sem cadastro
+  - 🔵 azul: gratuito, com cadastro no local (documento com foto; a CPTM pede também
+    comprovante de residência). É o caso dos bicicletários de estações e terminais.
+  - 🩷 rosa: pago
+  - ⚪ cinza: só clientes ou autorizados
+  - 🔴 vermelho: fechado agora, pelo horário informado no OpenStreetMap
+
+  Estacionamentos privados ficam de fora. O popup mostra operador, vagas, se é
+  coberto, até quando fica aberto e o link para corrigir os dados no OpenStreetMap.
+
 O controle de camadas, no canto superior direito, liga e desliga separadamente:
-trilhos, estações, itinerários, ônibus ao vivo e pontos de ônibus.
+trilhos, estações, itinerários, ônibus ao vivo, pontos de ônibus e bicicletários.
 
 Ônibus intermunicipais (antiga EMTU, hoje Artesp) não aparecem porque não aceitam
 bicicleta a bordo.
@@ -79,6 +93,7 @@ public/                       site estático (Leaflet)
   data/rail.geojson           trilhos e estações (gerado, OpenStreetMap)
   data/bus-routes.geojson     itinerários das linhas habituais (gerado, GTFS SPTrans)
   data/bus-stops.geojson      pontos de parada dessas linhas (gerado, GTFS SPTrans)
+  data/bike-parking.geojson   bicicletários e paraciclos (gerado, OpenStreetMap + GeoSampa)
   data/lines/<código>.json    itinerário e pontos de cada linha da SPTrans, para as que
                               aparecem fora da rota habitual (gerado, GTFS SPTrans)
 data/bike-fleet.json          prefixos dos ônibus com suporte (gerado, cadastro da frota)
@@ -87,6 +102,7 @@ relay/                        relay do Olho Vivo no Cloud Run: a SPTrans bloquei
 functions/api/route.js        itinerário via GeoSampa, para linhas que faltam no GTFS (cache de 1 dia)
 functions/api/rail-status.js  status ao vivo das linhas (feed usado por trilhos.motiva.com.br, cache de 60 s)
 scripts/build-data.mjs        gera os arquivos de dados (geometrias simplificadas a ~2 m)
+scripts/parking.mjs           classifica os bicicletários (tipo, acesso, horário)
 scripts/suggest-lines.mjs     sugere linhas habituais a partir das posições ao vivo
 ```
 
@@ -108,7 +124,7 @@ npm install
 cp .env.example .env            # e preencha SPTRANS_TOKEN
 npm run dev                      # http://localhost:8788
 npm test
-npm run build:data               # regenera rail.geojson e bus-routes.geojson
+npm run build:data               # regenera as camadas (ou só uma: -- rail, -- bus, -- parking)
 ```
 
 ## Publicação (Cloudflare Pages)
@@ -141,6 +157,10 @@ Para publicar direto da máquina, sem integração com o Git: `npm run deploy`.
   - [API Olho Vivo](https://www.sptrans.com.br/desenvolvedores/)
   - [GTFS SPTrans (espelho do Mobility Database)](https://files.mobilitydatabase.org/mdb-8/latest.zip)
   - © colaboradores do [OpenStreetMap](https://www.openstreetmap.org/copyright)
+  - [GeoSampa](https://geosampa.prefeitura.sp.gov.br/) (camada `bicicletario_paraciclo`)
+  - Regras dos bicicletários:
+    [CPTM](https://WWW.CPTM.SP.GOV.BR/sua-viagem/bicicletas-CPTM/Documents/Regulamento%20%20Biciclet%C3%A1rio.pdf),
+    [terminais SPTrans](https://diariodotransporte.com.br/2019/08/23/bicicletario-do-terminal-pq-dom-pedro-ll-tera-controle-de-acesso-a-partir-desta-segunda-feira/)
   - Ícones do [Metrô](https://commons.wikimedia.org/wiki/File:Metr%C3%B4-SP_icon.svg)
     e da [CPTM](https://commons.wikimedia.org/wiki/File:CPTM_icon.svg), via Wikimedia Commons
 

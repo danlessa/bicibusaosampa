@@ -83,6 +83,9 @@ test('parkingStatus says whether it is open now', () => {
   assert.equal(parkingStatus(p, sp('2026-10-11T10:00')).detail, 'Fechado · abre ter 06:00');
   assert.equal(parkingStatus({ ...p, hours: { weekday: [['04:40', '24:00']] } }, sp('2026-10-07T10:00')).detail, 'Aberto até meia-noite');
   assert.equal(parkingStatus({ ...p, hours: '24h' }).detail, 'Aberto 24 horas');
+  assert.equal(parkingStatus({ kind: 'paraciclo', access: 'livre' }).detail, null);
+  assert.equal(parkingStatus({ kind: 'bicicletario', access: 'livre' }).detail, 'Horário não informado');
+  assert.match(parkingStatus({ kind: 'bicicletario', access: 'cadastro' }).detail, /estação ou terminal/);
   assert.equal(parkingStatus({ kind: 'paraciclo', access: 'livre' }).open, null);
   assert.equal(parkingStatus({ kind: 'paraciclo', access: 'livre' }).colorKey, 'livre');
 });

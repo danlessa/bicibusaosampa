@@ -1,8 +1,9 @@
 # Bici Busão Sampa
 
 Live map of the buses and metro/train lines in Greater São Paulo that carry bicycles,
-served at https://busao.bicisampa.info. A static Leaflet site plus three Cloudflare Pages
-Functions. No framework and no build step for the site.
+and of the places to park a bike, served at https://busao.bicisampa.info. A static
+Leaflet site plus three Cloudflare Pages Functions. No framework and no build step for
+the site.
 
 It's the first piece of a planned *bicycling digital twin* of São Paulo: a PWA (later
 native apps) for everyday cyclists, aggregating many stakeholders' data, with
@@ -13,13 +14,15 @@ light, reusable-data choices.
 
 ```sh
 npm run dev          # wrangler pages dev → http://localhost:8788 (reads SPTRANS_TOKEN from .env)
-npm test             # node --test: schedule rules, holidays, headings, lanes, function helpers
-npm run build:data   # regenerate data files (`npm run build:data -- rail`, `-- bus` or `-- fleet` for one)
+npm test             # node --test: schedule rules, holidays, headings, lanes, bike parking, function helpers
+npm run build:data   # regenerate data files (`-- rail`, `-- bus`, `-- parking` or `-- fleet` for one)
 node scripts/suggest-lines.mjs [--write]   # compare live rack buses with the expected lines
 ```
 
 To check UI changes, run the dev server and take screenshots with Playwright. Use
 `page.clock.install()` to test other times of day; the colours depend on the clock.
+`map` isn't global: to move the view, intercept `js/app.js` with `page.route()` and
+append `window.__map = map;`.
 
 ## Layout
 
@@ -31,10 +34,16 @@ To check UI changes, run the dev server and take screenshots with Playwright. Us
     - `rail.js`: line status = timetable plus live override.
     - `heading.js`: bus direction of travel.
     - `offset.js`: polylines offset sideways by a zoom-dependent number of pixels.
+    - `parking.js`: bike parking access labels and open/closed status.
   - `data/rail-lines.json`, `data/bike-buses.json`: **hand-edited** config (lines,
     colours, operating hours, bike rules, the *expected* lines of the rack buses).
   - `data/*.geojson`: **generated** by `scripts/build-data.mjs`. Never edit by hand.
     Bus routes carry a precomputed `lane` (`scripts/lanes.mjs`).
+  - `data/bike-parking.geojson`: **generated** bicicletários and paraciclos in the
+    RMSP: OSM `amenity=bicycle_parking` (inside OSM relation 2661855) merged with the
+    GeoSampa `bicicletario_paraciclo` layer. Classified by `scripts/parking.mjs`;
+    OSM `opening_hours` become schedule.js schedules (`scripts/opening-hours.mjs`,
+    simple forms only, else unknown).
   - `data/lines/<code>.json`: **generated** route and stops of every SPTrans bus line
     (from the GTFS, ~1,350 files, ≤32 KB each), loaded when a rack bus runs off its
     expected lines.
@@ -88,6 +97,12 @@ To check UI changes, run the dev server and take screenshots with Playwright. Us
   browser Origin, so it must be called server-side.
 - **Overpass is often overloaded.** The build script tries several mirrors and keeps the
   existing file if all of them fail. Downloads are cached in `.cache/` for a day.
+  Mirrors can lag weeks behind the main server (check `osm3s.timestamp_osm_base`).
+- **GeoSampa bike parking** (`geoportal:bicicletario_paraciclo`) covers only the city
+  of São Paulo, and its points sit 50–200 m from the same parking in OSM. The build
+  merges a GeoSampa point into an OSM spot of the same kind within 250 m.
+- **Other Claude sessions may share this working tree.** Check `git status` and
+  `git diff` before committing, and commit only your own changes.
 - **All times are `America/Sao_Paulo`.** Schedules are `"HH:MM"` windows per day type
   (`weekday`, `saturday`, `sunday`, `holiday`). An end time past `24:00` spills into the
   next day; the Metrô's Saturday-night 24h service uses this. A `service` entry can
@@ -106,6 +121,11 @@ To check UI changes, run the dev server and take screenshots with Playwright. Us
   buses or lines; we use the fleet register CSV for buses and `suggest-lines.mjs` for
   the expected lines (3+ rack buses that are 20%+ of the line's buses).
 - **Intercity buses (Artesp, formerly EMTU)** don't carry bikes and are out of scope.
+- **Bike parking:** station and terminal bicicletários (Metrô, CPTM, ViaQuatro,
+  ViaMobilidade, SPTrans terminals run by Socicam, EMTU, Tembici) are free but need an
+  on-site sign-up with a photo ID (CPTM also asks for proof of address). They're
+  classed `cadastro` even when OSM tags them private. Paraciclos need no sign-up.
+  Private parking is left out.
 
 ## Visual conventions (chosen by the maintainer)
 
@@ -125,7 +145,12 @@ To check UI changes, run the dev server and take screenshots with Playwright. Us
   by side.
 - **Bus stops:** a front-view bus icon, shown from zoom 14; downloaded on first zoom-in
   and only the ones in view are on the map.
-- **Layer control:** toggles rail lines, stations, bus routes, live buses and bus stops.
+- **Bike parking:** a house for a bicicletário (from zoom 12), a circle for a paraciclo
+  (from zoom 14), with a white inverted-U stand and a dark outline. Colour: green =
+  free, no sign-up; blue = free with sign-up; pink = paid; grey = customers only;
+  red = closed now (overrides the others).
+- **Layer control:** toggles rail lines, stations, bus routes, live buses, bus stops
+  and bike parking.
 
 ## Style
 

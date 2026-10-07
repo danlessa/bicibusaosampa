@@ -1,6 +1,7 @@
-# Rebuilds the map layers (rail tracks from OpenStreetMap, bus routes from the
-# SPTrans GTFS) every Monday and whenever the line lists change, and commits
-# the result. Cloudflare Pages redeploys on the push.
+# Rebuilds the map layers (rail tracks and bike parking from OpenStreetMap and
+# GeoSampa, bus routes from the SPTrans GTFS) every Monday and whenever the line
+# lists or build scripts change, and commits the result. Cloudflare Pages redeploys
+# on the push.
 name: refresh-data
 
 on:
@@ -13,6 +14,8 @@ on:
       - public/data/bike-buses.json
       - public/data/rail-lines.json
       - scripts/build-data.mjs
+      - scripts/parking.mjs
+      - scripts/opening-hours.mjs
 
 permissions:
   contents: write
