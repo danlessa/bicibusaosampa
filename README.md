@@ -26,10 +26,10 @@ Mapa ao vivo dos ônibus e trilhos da Grande São Paulo que levam bicicleta, em
 
   - "Linha habitual" é uma linha em que os superarticulados rodam normalmente, com
     itinerário e pontos de parada no mapa. Um ônibus com suporte em outra linha
-    aparece como **fora da rota habitual**: o itinerário dessa linha é buscado na hora
-    e ela é listada à parte no painel.
-  - Os itinerários ficam levemente deslocados, para que sentidos e linhas no mesmo
-    corredor apareçam lado a lado.
+    aparece como **fora da rota habitual**: o itinerário e os pontos dessa linha são
+    carregados na hora e ela é listada à parte no painel.
+  - Os itinerários têm 10 m de largura no chão (no mínimo 1,5 px na tela) e ficam
+    deslocados, para que sentidos e linhas no mesmo corredor apareçam lado a lado.
   - Os pontos de parada aparecem a partir do zoom 14.
 
 O controle de camadas, no canto superior direito, liga e desliga separadamente:
@@ -79,9 +79,11 @@ public/                       site estático (Leaflet)
   data/rail.geojson           trilhos e estações (gerado, OpenStreetMap)
   data/bus-routes.geojson     itinerários das linhas habituais (gerado, GTFS SPTrans)
   data/bus-stops.geojson      pontos de parada dessas linhas (gerado, GTFS SPTrans)
+  data/lines/<código>.json    itinerário e pontos de cada linha da SPTrans, para as que
+                              aparecem fora da rota habitual (gerado, GTFS SPTrans)
 data/bike-fleet.json          prefixos dos ônibus com suporte (gerado, cadastro da frota)
 functions/api/buses.js        proxy do Olho Vivo: só os ônibus da frota com suporte (cache de 20 s)
-functions/api/route.js        itinerário de qualquer linha, via GeoSampa (cache de 1 dia)
+functions/api/route.js        itinerário via GeoSampa, para linhas que faltam no GTFS (cache de 1 dia)
 functions/api/rail-status.js  status ao vivo das linhas (feed usado por trilhos.motiva.com.br, cache de 60 s)
 scripts/build-data.mjs        gera os arquivos de dados (geometrias simplificadas a ~2 m)
 scripts/suggest-lines.mjs     sugere linhas habituais a partir das posições ao vivo

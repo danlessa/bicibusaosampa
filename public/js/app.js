@@ -240,12 +240,16 @@ let busNow = 'ok';
 const lineColor = (line) => busColor(busNow, line?.unusual);
 
 const OffsetPolyline = offsetPolylineClass(L);
-// Pixel offset of lane n: routes sit beside the street centre, right of travel
-// direction. Full size from zoom 15, shrinking when zoomed out so routes don't
-// drift away from their streets. Lanes are assigned by scripts/build-data.mjs.
-const laneOffset = (lane, zoom) => (3.5 + lane * 5.5) * Math.min(1, Math.max(0.15, (zoom - 10) / 5));
-// Route width also shrinks when zoomed out, so dozens of lines stay readable.
-const routeWeight = (zoom) => (zoom >= 14 ? 5 : zoom >= 13 ? 4 : zoom >= 12 ? 3 : 2);
+// Routes are drawn 10 m wide on the ground, but never thinner than 1.5 px so they
+// stay visible when zoomed out. Lane n sits beside the street centre, right of the
+// direction of travel, so lines sharing a street lie side by side. Lanes are
+// assigned by scripts/build-data.mjs.
+const ROUTE_METERS = 10;
+const MIN_ROUTE_PX = 1.5;
+// Metres per pixel at São Paulo's latitude (Web Mercator).
+const metersPerPixel = (zoom) => (156_543.03 * Math.cos((-23.55 * Math.PI) / 180)) / 2 ** zoom;
+const routeWeight = (zoom) => Math.max(MIN_ROUTE_PX, ROUTE_METERS / metersPerPixel(zoom));
+const laneOffset = (lane, zoom) => (lane + 0.6) * routeWeight(zoom);
 map.on('zoomend', () => {
   const weight = routeWeight(map.getZoom());
   busRouteLayer.eachLayer((r) => r.setStyle({ weight }));
@@ -274,12 +278,19 @@ function addBusRoutes(busGeo) {
   }
 }
 
-/** Fetches and draws the route of an unusual line (once). */
+/**
+ * Fetches and draws the route and stops of an unusual line (once): from the
+ * per-line GTFS file, else from GeoSampa (routes only) for lines missing there.
+ */
 async function loadUnusualRoute(line) {
-  if (line.routeRequested) return line.routeRequested;
-  line.routeRequested = getJson(`api/route?line=${encodeURIComponent(line.code)}`)
+  line.routeRequested ??= getJson(`data/lines/${encodeURIComponent(line.code)}.json`)
+    .catch(() => getJson(`api/route?line=${encodeURIComponent(line.code)}`))
     .then((data) => {
-      for (const d of data.directions ?? []) addRoute(line, d.sentido, d.coordinates, 0);
+      if (!busLineByCode.has(line.code)) return; // dropped while loading
+      if (data.name) line.name = data.name;
+      for (const d of data.directions ?? []) addRoute(line, d.sentido, d.coordinates, 0, d.headsign);
+      addStops((data.stops ?? []).map((st) => ({ ...st, lines: [line.code] })));
+      line.stopIds = (data.stops ?? []).map((st) => st.id);
     })
     .catch((err) => console.warn(`route ${line.code} unavailable`, err));
   return line.routeRequested;
@@ -287,6 +298,7 @@ async function loadUnusualRoute(line) {
 
 function dropUnusualLine(line) {
   for (const r of line.routes) busRouteLayer.removeLayer(r);
+  removeStopsOfLine(line.code, line.stopIds ?? []);
   busLineByCode.delete(line.code);
 }
 
@@ -304,40 +316,62 @@ const busStopIcon = L.divIcon({
   iconAnchor: [7, 8],
 });
 
-// Thousands of stops: they're downloaded the first time someone zooms in with the
-// layer on, and only the ones in view are on the map.
-let busStops = null; // [marker]
-let busStopsLoading = null;
+// Thousands of stops: those of the expected lines are downloaded the first time
+// someone zooms in with the layer on; unusual lines add theirs as they load. Only
+// the stops in view are on the map.
+const stopIndex = new Map(); // stop id -> { marker, name, lines: Set }
+let expectedStopsLoading = null;
 
-function loadBusStops() {
-  busStopsLoading ??= getJson('data/bus-stops.geojson')
-    .then((geo) => {
-      busStops = geo.features.map((f) => {
-        const [lon, lat] = f.geometry.coordinates;
-        return L.marker([lat, lon], { pane: 'busStops', icon: busStopIcon, keyboard: false })
-          .bindTooltip(esc(f.properties.name), { direction: 'top', offset: [0, -8] })
-          .bindPopup(() => busStopPopup(f.properties));
-      });
-      showStopsInView();
-    })
+function addStops(stops) {
+  for (const { id, name, coordinates, lines } of stops) {
+    const known = stopIndex.get(id);
+    if (known) {
+      lines.forEach((c) => known.lines.add(c));
+      continue;
+    }
+    const [lon, lat] = coordinates;
+    const entry = { name, lines: new Set(lines) };
+    entry.marker = L.marker([lat, lon], { pane: 'busStops', icon: busStopIcon, keyboard: false })
+      .bindTooltip(esc(name), { direction: 'top', offset: [0, -8] })
+      .bindPopup(() => busStopPopup(entry));
+    stopIndex.set(id, entry);
+  }
+  showStopsInView();
+}
+
+function removeStopsOfLine(code, ids) {
+  for (const id of ids) {
+    const entry = stopIndex.get(id);
+    if (!entry) continue;
+    entry.lines.delete(code);
+    if (!entry.lines.size) {
+      busStopLayer.removeLayer(entry.marker);
+      stopIndex.delete(id);
+    }
+  }
+}
+
+function loadExpectedStops() {
+  expectedStopsLoading ??= getJson('data/bus-stops.geojson')
+    .then((geo) => addStops(geo.features.map((f) => ({ ...f.properties, coordinates: f.geometry.coordinates }))))
     .catch((err) => console.warn('bus stops unavailable', err));
 }
 
 function showStopsInView() {
   if (!map.hasLayer(busStopGroup) || map.getZoom() < BUS_STOP_MIN_ZOOM) return;
-  if (!busStops) return loadBusStops();
+  loadExpectedStops();
   const view = map.getBounds().pad(0.25);
-  for (const m of busStops) {
-    const inView = view.contains(m.getLatLng());
-    if (inView && !busStopLayer.hasLayer(m)) busStopLayer.addLayer(m);
-    else if (!inView && busStopLayer.hasLayer(m)) busStopLayer.removeLayer(m);
+  for (const { marker } of stopIndex.values()) {
+    const inView = view.contains(marker.getLatLng());
+    if (inView && !busStopLayer.hasLayer(marker)) busStopLayer.addLayer(marker);
+    else if (!inView && busStopLayer.hasLayer(marker)) busStopLayer.removeLayer(marker);
   }
 }
 map.on('moveend overlayadd', showStopsInView);
 
 function busStopPopup({ name, lines }) {
   const s = bikeStatus({ bikes: busConfig.rules.bikes });
-  const rows = lines.map((code) => {
+  const rows = [...lines].sort().map((code) => {
     const n = state.buses.filter((b) => b.line === code).length;
     return `<p style="margin:4px 0">${busBadge(code)} ${esc(busLineByCode.get(code)?.name ?? '')}${n ? ` · ${n} com suporte agora` : ''}</p>`;
   });
@@ -394,11 +428,12 @@ const busMarkers = new Map(); // prefix -> marker
 function busPopup(bus, s) {
   const line = busLineByCode.get(bus.line);
   const seen = bus.at ? new Date(bus.at) : null;
-  return `<h3>${busBadge(bus.line)} → ${esc(bus.to)}</h3>
-    ${line?.name ? `<p style="margin:0">${esc(line.name)}</p>` : ''}
+  return `<h3>Ônibus ${esc(bus.prefix)}</h3>
+    <p style="margin:0">${busBadge(bus.line)} → ${esc(bus.to)}</p>
+    ${line?.name ? `<p style="margin:2px 0 0;color:var(--muted)">${esc(line.name)}</p>` : ''}
     ${bus.expected ? '' : `<p style="margin:6px 0 0">⚠️ <b>Fora da rota habitual</b>: este ônibus com suporte para bici está rodando numa linha que normalmente não usa superarticulados.</p>`}
     <p style="margin:6px 0 0"><span class="dot ${s.status}" style="vertical-align:-1px"></span> <b>${STATUS_LABELS[s.status]}</b><br>${esc(s.detail)}</p>
-    <p style="margin:6px 0 0">Prefixo ${esc(bus.prefix)}${bus.accessible ? ' · ♿ acessível' : ''}</p>
+    ${bus.accessible ? '<p style="margin:6px 0 0">♿ Acessível</p>' : ''}
     ${seen ? `<p style="margin:0;color:var(--muted)">Posição das ${describeTime(seen)}</p>` : ''}
     ${line?.note ? `<p style="margin:6px 0 0">⚠️ ${esc(line.note)}</p>` : ''}
     <p style="margin:6px 0 0;font-size:12px;color:var(--muted)">${esc(busConfig.rules.summary)}</p>`;
@@ -446,6 +481,8 @@ function renderBuses() {
     + esc(busConfig.rules.summary)
     + (state.busError ? `<br><b>Posições ao vivo indisponíveis</b> (${esc(state.busError)}).` : '');
   $('#bus-unusual').hidden = !unusual.length;
+  const offRoute = unusual.reduce((n, c) => n + (counts.get(c) ?? 0), 0);
+  $('#bus-unusual-summary').textContent = `Fora da rota habitual (${offRoute} ônibus em ${unusual.length} ${unusual.length === 1 ? 'linha' : 'linhas'})`;
   $('#bus-unusual-list').innerHTML = unusual.map((c) => lineItem(c, counts.get(c))).join('');
   $('#bus-lines-summary').textContent = `Linhas habituais (${active} de ${expected.length} com ônibus agora)`;
   $('#bus-list').innerHTML = expected.map((c) => lineItem(c, counts.get(c))).join('');

@@ -192,5 +192,5 @@ footer a { color: var(--accent); }
   border-radius: 2px;
   border: 1.5px solid #1c1917;
 }
-.subhead { margin: 12px 0 4px; font-size: 13px; }
-#bus-lines summary { cursor: pointer; margin: 8px 0 4px; font-weight: 600; }
+#bus-lines summary,
+#bus-unusual summary { cursor: pointer; margin: 8px 0 4px; font-weight: 600; }

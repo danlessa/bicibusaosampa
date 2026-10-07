@@ -3,12 +3,13 @@
 //   public/data/rail.geojson        metro/train tracks and stations, from OpenStreetMap (Overpass)
 //   public/data/bus-routes.geojson  routes of the expected bike-bus lines, from the SPTrans GTFS
 //   public/data/bus-stops.geojson   stops served by those lines, from the SPTrans GTFS
+//   public/data/lines/<code>.json   route and stops of every SPTrans bus line, from the GTFS
 //   data/bike-fleet.json            SPTrans buses with a bike rack, from the fleet CSV in assets/
 //
 // Usage: node scripts/build-data.mjs [rail|bus|fleet]   (default: all)
 // Downloads are cached in .cache/ for a day; delete it to force a refresh.
 
-import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { unzipSync, strFromU8 } from 'fflate';
@@ -184,8 +185,10 @@ async function buildBus() {
     filter: (f) => ['routes.txt', 'trips.txt', 'shapes.txt', 'stops.txt', 'stop_times.txt'].includes(f.name),
   });
 
-  const routes = new Map(parseCsv(strFromU8(files['routes.txt'])).map((r) => [r.route_id, r]));
-  const trips = parseCsv(strFromU8(files['trips.txt'])).filter((t) => wanted.has(t.route_id));
+  // Every bus line (route_type 3), not just the expected ones: the per-line files
+  // let the map show any line a bike-rack bus happens to run.
+  const routes = new Map(parseCsv(strFromU8(files['routes.txt'])).filter((r) => r.route_type === '3').map((r) => [r.route_id, r]));
+  const trips = parseCsv(strFromU8(files['trips.txt'])).filter((t) => routes.has(t.route_id));
   const shapeIds = new Set(trips.map((t) => t.shape_id));
 
   const points = new Map(); // shape_id -> [[seq, lon, lat]]
@@ -196,32 +199,13 @@ async function buildBus() {
     points.get(cols[0]).push([+cols[3], round(+cols[2]), round(+cols[1])]);
   }
 
-  const features = trips.map((t) => ({
-    type: 'Feature',
-    properties: {
-      code: t.route_id,
-      // GTFS direction 0 is Olho Vivo "sentido" 1 (main terminal -> secondary).
-      sentido: +t.direction_id + 1,
-      headsign: t.trip_headsign,
-      name: routes.get(t.route_id)?.route_long_name,
-    },
-    geometry: {
-      type: 'LineString',
-      coordinates: simplify((points.get(t.shape_id) ?? []).sort((a, b) => a[0] - b[0]).map(([, lon, lat]) => [lon, lat])),
-    },
+  const directions = trips.map((t) => ({
+    code: t.route_id,
+    // GTFS direction 0 is Olho Vivo "sentido" 1 (main terminal -> secondary).
+    sentido: +t.direction_id + 1,
+    headsign: t.trip_headsign,
+    coordinates: simplify((points.get(t.shape_id) ?? []).sort((a, b) => a[0] - b[0]).map(([, lon, lat]) => [lon, lat])),
   }));
-
-  // Lanes keep lines that share streets apart on the map (see public/js/offset.js).
-  const byCode = {};
-  for (const f of features) (byCode[f.properties.code] ??= []).push(f.geometry.coordinates);
-  const lanes = assignLanes(byCode);
-  for (const f of features) f.properties.lane = lanes[f.properties.code];
-
-  const found = new Set(trips.map((t) => t.route_id));
-  const missing = [...wanted].filter((c) => !found.has(c));
-  if (missing.length) console.warn(`  line(s) not in GTFS: ${missing.join(', ')}`);
-  await writeFile(join(DATA, 'bus-routes.geojson'), JSON.stringify({ type: 'FeatureCollection', features }));
-  console.log(`  wrote bus-routes.geojson: ${found.size} lines, ${features.length} directions`);
 
   const tripRoute = new Map(trips.map((t) => [t.trip_id, t.route_id]));
   const stopLines = new Map(); // stop_id -> Set(route_id)
@@ -233,13 +217,57 @@ async function buildBus() {
   }
   const stops = parseCsv(strFromU8(files['stops.txt']))
     .filter((st) => stopLines.has(st.stop_id))
+    .map((st) => ({ id: st.stop_id, name: st.stop_name?.trim(), coordinates: [round(+st.stop_lon), round(+st.stop_lat)], lines: stopLines.get(st.stop_id) }));
+
+  // Map layers for the expected lines.
+  const features = directions.filter((d) => wanted.has(d.code)).map(({ coordinates, ...props }) => ({
+    type: 'Feature',
+    properties: { ...props, name: routes.get(props.code)?.route_long_name },
+    geometry: { type: 'LineString', coordinates },
+  }));
+  // Lanes keep lines that share streets apart on the map (see public/js/offset.js).
+  const byCode = {};
+  for (const f of features) (byCode[f.properties.code] ??= []).push(f.geometry.coordinates);
+  const lanes = assignLanes(byCode);
+  for (const f of features) f.properties.lane = lanes[f.properties.code];
+
+  const found = new Set(features.map((f) => f.properties.code));
+  const missing = [...wanted].filter((c) => !found.has(c));
+  if (missing.length) console.warn(`  line(s) not in GTFS: ${missing.join(', ')}`);
+  await writeFile(join(DATA, 'bus-routes.geojson'), JSON.stringify({ type: 'FeatureCollection', features }));
+  console.log(`  wrote bus-routes.geojson: ${found.size} lines, ${features.length} directions`);
+
+  const stopFeatures = stops
+    .filter((st) => [...st.lines].some((c) => wanted.has(c)))
     .map((st) => ({
       type: 'Feature',
-      properties: { id: st.stop_id, name: st.stop_name?.trim(), lines: [...stopLines.get(st.stop_id)].sort() },
-      geometry: { type: 'Point', coordinates: [round(+st.stop_lon), round(+st.stop_lat)] },
+      properties: { id: st.id, name: st.name, lines: [...st.lines].filter((c) => wanted.has(c)).sort() },
+      geometry: { type: 'Point', coordinates: st.coordinates },
     }));
-  await writeFile(join(DATA, 'bus-stops.geojson'), JSON.stringify({ type: 'FeatureCollection', features: stops }));
-  console.log(`  wrote bus-stops.geojson: ${stops.length} stops`);
+  await writeFile(join(DATA, 'bus-stops.geojson'), JSON.stringify({ type: 'FeatureCollection', features: stopFeatures }));
+  console.log(`  wrote bus-stops.geojson: ${stopFeatures.length} stops`);
+
+  // One file per line: route and stops, loaded on demand (public/data/lines/<code>.json).
+  const linesDir = join(DATA, 'lines');
+  await rm(linesDir, { recursive: true, force: true });
+  await mkdir(linesDir, { recursive: true });
+  const stopsByLine = new Map();
+  for (const st of stops) {
+    for (const code of st.lines) {
+      if (!stopsByLine.has(code)) stopsByLine.set(code, []);
+      stopsByLine.get(code).push({ id: st.id, name: st.name, coordinates: st.coordinates });
+    }
+  }
+  const dirsByLine = Map.groupBy(directions, (d) => d.code);
+  for (const [code, route] of routes) {
+    await writeFile(join(linesDir, `${code}.json`), JSON.stringify({
+      code,
+      name: route.route_long_name,
+      directions: (dirsByLine.get(code) ?? []).map(({ sentido, headsign, coordinates }) => ({ sentido, headsign, coordinates })),
+      stops: stopsByLine.get(code) ?? [],
+    }));
+  }
+  console.log(`  wrote lines/: ${routes.size} line files`);
 }
 
 // ---------------------------------------------------------------- fleet (CSV)

@@ -35,6 +35,9 @@ To check UI changes, run the dev server and take screenshots with Playwright. Us
     colours, operating hours, bike rules, the *expected* lines of the rack buses).
   - `data/*.geojson`: **generated** by `scripts/build-data.mjs`. Never edit by hand.
     Bus routes carry a precomputed `lane` (`scripts/lanes.mjs`).
+  - `data/lines/<code>.json`: **generated** route and stops of every SPTrans bus line
+    (from the GTFS, ~1,350 files, ≤32 KB each), loaded when a rack bus runs off its
+    expected lines.
 - `data/bike-fleet.json`: **generated** from `assets/00_businfo_consolidado.csv`
   (SPTrans fleet register): prefixes of `cidade=SP`, `tipo=A23` ("Articulado 23m")
   buses. Electric `eA3` buses have no rack and are excluded. Server-side only.
@@ -44,7 +47,7 @@ To check UI changes, run the dev server and take screenshots with Playwright. Us
   `/Posicao` vehicles whose prefix is in the fleet list, wherever they run; each gets
   `expected: false` when its line isn't in `bike-buses.json`.
 - `functions/api/route.js`: route of any line from GeoSampa WFS (`geoportal:linha_onibus`),
-  used for buses running off their expected lines. Cached a day.
+  the fallback for off-route lines missing from `data/lines/`. Cached a day.
 - `functions/api/rail-status.js`: proxy for the Motiva line-status feed, which covers
   every operator.
 - `functions/_lib/`: shared function code.
@@ -106,9 +109,9 @@ To check UI changes, run the dev server and take screenshots with Playwright. Us
   yellow, outside hours + off-route = orange.
 - **Bus icons:** a rounded box in the bus colour with a white arrow pointing the
   direction of travel.
-- **Bus routes:** solid lines in the bus colour. They're offset into lanes so both
-  directions and shared corridors show side by side; offset and width shrink when
-  zoomed out.
+- **Bus routes:** solid lines in the bus colour, 10 m wide on the ground (never under
+  1.5 px). They're offset into lanes so both directions and shared corridors lie side
+  by side.
 - **Bus stops:** a front-view bus icon, shown from zoom 14; downloaded on first zoom-in
   and only the ones in view are on the map.
 - **Layer control:** toggles rail lines, stations, bus routes, live buses and bus stops.
