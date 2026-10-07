@@ -5,9 +5,12 @@
 //   public/data/bus-stops.geojson   stops served by those lines, from the SPTrans GTFS
 //   public/data/lines/<code>.json   route and stops of every SPTrans bus line, from the GTFS
 //   public/data/bike-parking.geojson bicicletários and paraciclos, from OSM and GeoSampa
+//   public/data/routing/transit.json transit network for the trip planner, from the SPTrans GTFS
+//   public/data/routing/streets.bin  street graph for the trip planner, from OSM and amora's
+//                                    elevations (only on request: `streets`, ~30 Overpass calls)
 //   data/bike-fleet.json            SPTrans buses with a bike rack, from the fleet CSV in assets/
 //
-// Usage: node scripts/build-data.mjs [rail|bus|parking|fleet]   (default: all)
+// Usage: node scripts/build-data.mjs [rail|bus|parking|routing|streets|fleet]   (default: all but streets)
 // Downloads are cached in .cache/ for a day; delete it to force a refresh.
 
 import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
@@ -18,6 +21,8 @@ import { unzipSync, strFromU8 } from 'fflate';
 import { round, simplify } from '../functions/_lib/geometry.js';
 import { assignLanes } from './lanes.mjs';
 import { buildParking } from './parking.mjs';
+import { buildTransit } from './routing.mjs';
+import { buildStreets, phvgElevation } from './streets.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const DATA = join(ROOT, 'public', 'data');
@@ -301,6 +306,94 @@ async function buildParkingLayer() {
   console.log(`  wrote bike-parking.geojson: ${features.length} spots ${count('kind')} ${count('access')}`);
 }
 
+// ---------------------------------------------------------------- routing (GTFS)
+
+async function buildRouting() {
+  console.log('Routing: building the transit network from the SPTrans GTFS');
+  const zip = await cached('sptrans-gtfs.zip', () =>
+    firstOk(GTFS_URLS, { headers: { 'User-Agent': 'curl/8 bicibusaosampa' } }),
+  );
+  const names = ['routes.txt', 'trips.txt', 'stops.txt', 'stop_times.txt', 'frequencies.txt', 'calendar.txt'];
+  const files = unzipSync(new Uint8Array(zip), { filter: (f) => names.includes(f.name) });
+  const table = (name) => parseCsv(strFromU8(files[name]));
+  const network = buildTransit({
+    routes: table('routes.txt'),
+    trips: table('trips.txt'),
+    stops: table('stops.txt'),
+    stopTimes: table('stop_times.txt'),
+    frequencies: table('frequencies.txt'),
+    calendar: table('calendar.txt'),
+  });
+  if (network.patterns.length < 1000) throw new Error(`only ${network.patterns.length} patterns, the GTFS looks broken`);
+  await mkdir(join(DATA, 'routing'), { recursive: true });
+  const body = JSON.stringify(network);
+  await writeFile(join(DATA, 'routing', 'transit.json'), body);
+  const departures = network.patterns.reduce((n, p) => n + p.departures.length, 0);
+  console.log(`  wrote routing/transit.json: ${network.stops.id.length} stops, ${network.patterns.length} patterns, ${departures} departures, ${(body.length / 1e6).toFixed(1)} MB`);
+}
+
+// ---------------------------------------------------------------- streets (OSM)
+
+// Where the planner has street routing (south, west, north, east): the city and its
+// neighbours along the rail lines. Outside it, walking and cycling are straight lines.
+const STREETS_BBOX = [-23.8, -46.9, -23.35, -46.3];
+const STREETS_TILE = [0.09, 0.1];
+const AMORA_GRAPH = 'https://telhas.pedalhidrografi.co/viario/sampa-viario-graph.bin';
+const PAGES_FILE_LIMIT = 25 * 1024 * 1024;
+
+async function buildStreetsLayer() {
+  console.log('Streets: fetching OpenStreetMap streets in tiles');
+  const [south, west, north, east] = STREETS_BBOX;
+  const ways = new Map(), coords = new Map();
+  for (let r = 0, s = south; s < north - 1e-9; r++, s += STREETS_TILE[0]) {
+    for (let c = 0, w = west; w < east - 1e-9; c++, w += STREETS_TILE[1]) {
+      const bbox = [s, w, Math.min(north, s + STREETS_TILE[0]), Math.min(east, w + STREETS_TILE[1])].map((x) => x.toFixed(4)).join(',');
+      const query = `
+        [out:json][timeout:180][maxsize:268435456];
+        way["highway"]["highway"!~"^(proposed|construction|platform|raceway|bus_guideway|abandoned|razed|elevator|via_ferrata|escape|busway|services|rest_area|disused)$"]["area"!="yes"](${bbox});
+        out body qt;
+        >;
+        out skel qt;`;
+      // Overpass can answer 200 with a timeout remark and no data: never cache that.
+      // The main Overpass server allows two queries at a time and sheds load with 429
+      // and 504: wait and retry there instead of falling back to slower mirrors.
+      const body = await cached(`streets-${r}-${c}.json`, async () => {
+        for (let attempt = 1; ; attempt++) {
+          try {
+            const buf = await firstOk([OVERPASS_ENDPOINTS[0]], {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': 'bicibusaosampa/1.0 (+https://github.com/danlessa/bicibusaosampa)' },
+              body: new URLSearchParams({ data: query }),
+            });
+            const head = new TextDecoder().decode(buf.slice(0, 2000)) + new TextDecoder().decode(buf.slice(-2000));
+            if (!head.trimStart().startsWith('{') || /"remark":\s*"runtime error/.test(head)) throw new Error(`Overpass gave no data for tile ${r},${c}`);
+            return buf;
+          } catch (err) {
+            if (attempt >= 20) throw err;
+            const wait = Math.min(120, 15 * attempt);
+            console.warn(`  tile ${r},${c}: ${err.message}; retrying in ${wait} s`);
+            await new Promise((resolve) => setTimeout(resolve, wait * 1000));
+          }
+        }
+      });
+      const { elements } = JSON.parse(body.toString('utf8'));
+      for (const el of elements) {
+        if (el.type === 'node') coords.set(el.id, [el.lat, el.lon]);
+        else if (el.type === 'way' && !ways.has(el.id)) ways.set(el.id, { nodes: el.nodes, tags: el.tags ?? {} });
+      }
+      console.log(`  tile ${r},${c}: ${ways.size} ways, ${coords.size} nodes so far`);
+    }
+  }
+  console.log('Streets: elevations from amora\'s graph');
+  const phvg = await cached('sampa-viario-graph.bin', () => firstOk([AMORA_GRAPH]));
+  const elevation = phvgElevation(phvg.buffer.slice(phvg.byteOffset, phvg.byteOffset + phvg.byteLength));
+  const graph = buildStreets(ways, coords, elevation);
+  if (graph.buffer.byteLength > PAGES_FILE_LIMIT) throw new Error(`streets.bin is ${graph.buffer.byteLength} bytes, over the Pages file limit`);
+  await mkdir(join(DATA, 'routing'), { recursive: true });
+  await writeFile(join(DATA, 'routing', 'streets.bin'), Buffer.from(graph.buffer));
+  console.log(`  wrote routing/streets.bin: ${graph.nodes} nodes, ${graph.edges} edges, ${(graph.buffer.byteLength / 1e6).toFixed(1)} MB`);
+}
+
 // ---------------------------------------------------------------- fleet (CSV)
 
 async function buildFleet() {
@@ -344,4 +437,6 @@ const which = process.argv[2];
 if (!which || which === 'rail') await run('rail', buildRail);
 if (!which || which === 'bus') await run('bus', buildBus);
 if (!which || which === 'parking') await run('parking', buildParkingLayer);
+if (!which || which === 'routing') await run('routing', buildRouting);
+if (which === 'streets') await run('streets', buildStreetsLayer);
 if (!which || which === 'fleet') await run('fleet', buildFleet);

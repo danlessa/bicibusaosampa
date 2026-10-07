@@ -24,7 +24,7 @@ export function dayType(iso) {
   return 'weekday';
 }
 
-function windowsFor(schedule, type) {
+export function windowsFor(schedule, type) {
   if (schedule[type]) return schedule[type];
   if (type === 'holiday') return schedule.sunday ?? [];
   return schedule.weekday ?? [];

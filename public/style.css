@@ -205,3 +205,103 @@ footer a { color: var(--accent); }
 #rail-details > summary,
 #bus-details > summary { margin: 16px 0 8px; color: var(--muted); }
 .legend-title { margin: 10px 0 4px; font-size: 12px; font-weight: 600; }
+
+/* Trip planner */
+#plan-details > summary { margin: 16px 0 8px; color: var(--muted); }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.plan-points { display: flex; flex-direction: column; gap: 6px; }
+#panel button.plan-point,
+.plan-actions button,
+#plan-now,
+.plan-menu button {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  cursor: pointer;
+}
+#panel button.plan-point { display: flex; gap: 8px; align-items: center; padding: 6px 8px; text-align: left; color: var(--muted); }
+#panel button.plan-point.set { color: var(--fg); }
+#panel button.plan-point.active { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 35%, transparent); }
+.plan-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.plan-actions button, #plan-now { padding: 4px 8px; font-size: 12px; }
+.pin {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  color: #fff;
+  font-weight: 700;
+  font-size: 12px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
+}
+.pin.a { background: #0f766e; }
+.pin.b { background: #b91c1c; }
+.plan-pin { display: grid; place-items: center; }
+.plan-pin .pin { width: 26px; height: 26px; font-size: 13px; }
+.plan-park { font-size: 20px; line-height: 22px; text-align: center; filter: drop-shadow(0 1px 1.5px rgba(0, 0, 0, 0.45)); }
+#map.picking, #map.picking .leaflet-interactive { cursor: crosshair; }
+
+.plan-modes { display: flex; gap: 4px; margin: 10px 0 6px; padding: 0; border: 0; }
+.plan-modes label { flex: 1; }
+.plan-modes input { position: absolute; opacity: 0; }
+.plan-modes span {
+  display: block;
+  padding: 6px 4px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  text-align: center;
+  font-size: 12px;
+  cursor: pointer;
+}
+.plan-modes input:checked + span { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); font-weight: 600; }
+.plan-modes input:focus-visible + span { outline: 2px solid var(--accent); }
+.plan-field { display: flex; gap: 6px; align-items: center; margin: 6px 0; font-size: 12px; color: var(--muted); }
+.plan-field[hidden] { display: none; }
+.plan-field select, .plan-field input {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 6px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+}
+#plan-status { margin-top: 8px; }
+
+.plan-results { list-style: none; margin: 0 0 8px; padding: 0; }
+.plan-results > li { border-top: 1px solid var(--border); }
+.plan-results > li.selected { background: color-mix(in srgb, var(--accent) 8%, transparent); border-radius: 6px; }
+.plan-journey {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  padding: 8px 4px;
+  border: 0;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.plan-journey .when { font-variant-numeric: tabular-nums; }
+.plan-journey .when b { margin-left: 6px; }
+.plan-journey .legs { display: flex; flex-wrap: wrap; gap: 3px; align-items: center; }
+.plan-journey .legs small { margin-left: 1px; color: var(--muted); }
+.plan-journey .legs .badge { margin-left: 2px; }
+.plan-journey .sep { color: var(--muted); }
+.plan-legs { list-style: none; margin: 0; padding: 0 4px 8px; }
+.plan-legs li { display: flex; gap: 8px; padding: 4px 0; }
+.plan-legs .leg-icon { flex: none; width: 20px; text-align: center; }
+.plan-legs .detail { display: block; font-size: 12px; color: var(--muted); }
+.plan-legs .detail.note-live { color: var(--ok); }
+.plan-menu { display: flex; gap: 6px; }
+.plan-menu button { padding: 6px 10px; }
+.plan-optimize { margin-top: 0; }
+.plan-journey .kcal { margin-left: 6px; color: var(--muted); font-size: 12px; }

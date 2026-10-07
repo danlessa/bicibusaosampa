@@ -3,6 +3,7 @@
 import { headingOfMove, headingOnRoute, iconTransform } from './heading.js';
 import { offsetPolylineClass } from './offset.js';
 import { ACCESS, parkingStatus } from './parking.js';
+import { initPlanner } from './planner.js';
 import { railStatus as lineStatus } from './rail.js';
 import { bikeStatus, describeTime } from './schedule.js';
 import { holidayName, spParts } from './time.js';
@@ -653,6 +654,12 @@ try {
   if (saved !== null) startCollapsed = saved === '1';
 } catch {}
 if (startCollapsed) $('#panel-toggle').click();
+
+initPlanner({
+  map,
+  railLines: lineByRef,
+  getBuses: () => (state.busesLoaded && !state.busError ? state.buses : null),
+});
 
 renderClock();
 renderRail();

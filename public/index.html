@@ -13,6 +13,9 @@
   <link rel="modulepreload" href="js/heading.js">
   <link rel="modulepreload" href="js/offset.js">
   <link rel="modulepreload" href="js/parking.js">
+  <link rel="modulepreload" href="js/planner.js">
+  <link rel="modulepreload" href="js/raptor.js">
+  <link rel="modulepreload" href="js/streets.js">
   <link rel="modulepreload" href="js/rail.js">
   <link rel="modulepreload" href="js/schedule.js">
   <link rel="modulepreload" href="js/time.js">
@@ -35,6 +38,41 @@
     </header>
     <div id="panel-body">
       <p id="clock" class="clock"></p>
+
+      <section id="plan-section">
+        <details id="plan-details">
+          <summary><h2>Planejar viagem <span class="count">(protótipo)</span></h2></summary>
+          <div class="plan-points">
+            <button type="button" id="plan-from" class="plan-point"><span class="pin a">A</span><span class="label">Origem: toque aqui e depois no mapa</span></button>
+            <button type="button" id="plan-to" class="plan-point"><span class="pin b">B</span><span class="label">Destino: toque aqui e depois no mapa</span></button>
+            <div class="plan-actions">
+              <button type="button" id="plan-locate">📍 Minha localização</button>
+              <button type="button" id="plan-swap" title="Inverter origem e destino">⇅ Inverter</button>
+              <button type="button" id="plan-clear">Limpar</button>
+            </div>
+          </div>
+          <fieldset class="plan-modes">
+            <legend class="sr-only">Como ir</legend>
+            <label><input type="radio" name="plan-profile" value="bike" checked><span>🚲 De bici</span></label>
+            <label><input type="radio" name="plan-profile" value="carry"><span>🚲 Sempre com ela</span></label>
+            <label><input type="radio" name="plan-profile" value="walk"><span>🚶 A pé</span></label>
+          </fieldset>
+          <fieldset class="plan-modes plan-optimize">
+            <legend class="sr-only">Prioridade</legend>
+            <label><input type="radio" name="plan-optimize" value="time" checked><span>⏱️ Mais rápido</span></label>
+            <label><input type="radio" name="plan-optimize" value="energy"><span>🔋 Menos esforço</span></label>
+          </fieldset>
+          <label class="plan-field" id="plan-power-field">Ritmo <select id="plan-power"></select></label>
+          <div class="plan-field">
+            <label for="plan-at">Saída</label>
+            <input type="datetime-local" id="plan-at">
+            <button type="button" id="plan-now">Agora</button>
+          </div>
+          <p id="plan-status" class="note">Marque a origem e o destino. Também dá para tocar e segurar no mapa.</p>
+          <ol id="plan-results" class="plan-results"></ol>
+          <p class="note">Protótipo. "De bici" pode deixar a bici num bicicletário de estação ou terminal; "Sempre com ela" nunca a deixa. "Menos esforço" busca o menor gasto de calorias (acima do repouso), mesmo que demore mais: pedalar e andar contam, ir sentado ou em pé no ônibus e no trem quase nada. Trechos a pé e de bici pelas ruas do OpenStreetMap, com o relevo; fora da área coberta, em linha reta. Com saída agora, os ônibus com bici são os superarticulados na rua; para depois, as linhas onde eles costumam rodar.</p>
+        </details>
+      </section>
 
       <section id="legend-section">
         <details open>

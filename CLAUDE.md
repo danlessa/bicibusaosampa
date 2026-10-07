@@ -17,6 +17,7 @@ npm run dev          # wrangler pages dev → http://localhost:8788 (reads SPTRA
 npm test             # node --test: schedule rules, holidays, headings, lanes, bike parking, function helpers
 npm run build:data   # regenerate data files (`-- rail`, `-- bus`, `-- parking` or `-- fleet` for one)
 node scripts/suggest-lines.mjs [--write]   # compare live rack buses with the expected lines
+node scripts/plan.mjs --from=LAT,LON --to=LAT,LON [--at=…] [--power=suave]   # try the trip planner
 ```
 
 To check UI changes, run the dev server and take screenshots with Playwright. Use
@@ -34,6 +35,25 @@ append `window.__map = map;`.
     - `rail.js`: line status = timetable plus live override.
     - `heading.js`: bus direction of travel.
     - `offset.js`: polylines offset sideways by a zoom-dependent number of pixels.
+    - `raptor.js`: trip planner (prototype). McRAPTOR over `data/routing/transit.json`
+      with two criteria, arrival time and energy (net kcal), and every stop in two
+      layers, with and without the bike. "Mais rápido" keeps options within the fastest +
+      max(15 min, 30%); "Menos esforço" ignores time (up to a 3 h trip) and sorts by kcal.
+    - `streets.js`: street graph (`data/routing/streets.bin`): decoding, snapping, a
+      Dijkstra for walking/cycling legs with one-ways, pushing and slopes. Bike speed and
+      energy follow amora's model (power level on the flat, 2× on climbs); walking uses
+      Tobler and Minetti. Without the file, legs fall back to straight lines × 1.3.
+    - `live-trips.js`: live 23m buses from `/api/buses` turned into planner trips on
+      the line they're actually running.
+    - `planner.js` + `planner-worker.js`: the "Planejar viagem" panel section. The
+      worker downloads the network the first time the section opens and runs the
+      searches. While picking a point, map clicks are caught before any layer gets them.
+  - `data/routing/transit.json`: **generated** (`npm run build:data -- routing`) from the
+    GTFS: stops and per line-direction patterns (stop offsets + departures).
+  - `data/routing/streets.bin`: **generated on request only** (`npm run build:data --
+    streets`, not in the weekly run): OSM streets from ~30 Overpass tiles plus node
+    elevations from amora's baked graph (`telhas.pedalhidrografi.co/viario/`). Must
+    stay under Cloudflare Pages' 25 MiB file limit; the build refuses otherwise.
     - `parking.js`: bike parking access labels and open/closed status.
   - `data/rail-lines.json`, `data/bike-buses.json`: **hand-edited** config (lines,
     colours, operating hours, bike rules, the *expected* lines of the rack buses).
@@ -97,6 +117,8 @@ append `window.__map = map;`.
   browser Origin, so it must be called server-side.
 - **Overpass is often overloaded.** The build script tries several mirrors and keeps the
   existing file if all of them fail. Downloads are cached in `.cache/` for a day.
+  Heavy queries need a modest `[maxsize:]` (256 MB): asking for 1 GB gets 504s whenever
+  the server is busy. The main server allows 2 queries at a time (429 otherwise).
   Mirrors can lag weeks behind the main server (check `osm3s.timestamp_osm_base`).
 - **GeoSampa bike parking** (`geoportal:bicicletario_paraciclo`) covers only the city
   of São Paulo, and its points sit 50–200 m from the same parking in OSM. The build
