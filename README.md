@@ -16,7 +16,7 @@ Mapa ao vivo dos ônibus e trilhos da Grande São Paulo que levam bicicleta, em
   23 m, os únicos com suporte para bicicleta
   ([Portaria SMT 32/2016](https://legislacao.prefeitura.sp.gov.br/leis/portaria-secretaria-municipal-de-mobilidade-e-transportes-32-de-7-de-maio-de-2016)).
   Os superarticulados elétricos não têm suporte e ficam de fora.
-  - Cada ônibus aparece de lado, com setas no corpo apontando o sentido da viagem.
+  - Cada ônibus é uma caixa com uma seta apontando o sentido da viagem.
   - 🟩 Verde: ônibus numa das linhas em que os superarticulados rodam normalmente,
     com itinerário e pontos de parada no mapa.
   - 🟪 Roxo: ônibus com suporte **fora da rota habitual**, rodando numa linha que

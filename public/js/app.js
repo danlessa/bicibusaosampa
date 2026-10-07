@@ -88,7 +88,7 @@ function rememberLayers() {
 map.on('overlayadd overlayremove', rememberLayers);
 map.on('zoomend', updateZoomedLayers);
 // Bus icons shrink as you zoom out so busy corridors don't turn into a pile.
-const BUS_SCALE = { 10: 0.3, 11: 0.38, 12: 0.55, 13: 0.8 };
+const BUS_SCALE = { 10: 0.45, 11: 0.55, 12: 0.7, 13: 0.85 };
 const setBusScale = () => {
   const z = Math.round(map.getZoom());
   map.getContainer().style.setProperty('--bus-scale', z >= 14 ? 1 : BUS_SCALE[Math.max(10, z)]);
@@ -345,19 +345,11 @@ function busBadge(code) {
   return `<span class="badge" style="background:${lineColor(busLineByCode.get(code))}">${esc(code)}</span>`;
 }
 
-// Side view of an articulated bus, front to the right, with a chevron on each
-// carriage showing the direction of travel; turned by iconTransform().
-const busSvg = (body, ink) => `<svg class="bus-icon" viewBox="0 0 40 16" width="40" height="16" aria-hidden="true">
-  <rect x="0.9" y="1.5" width="38.2" height="11" rx="2" fill="${body}" stroke="${ink}" stroke-width="1.8"/>
-  <path d="M35 3.2h2.3a1.2 1.2 0 0 1 1.2 1.2v4.3H35z" fill="#e0f2fe"/>
-  <rect x="18.1" y="1.5" width="2.3" height="11" fill="${ink}" opacity=".7"/>
-  <g fill="none" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M6.5 3.6 10.5 7 6.5 10.4M24 3.6 28 7 24 10.4" stroke="${ink}" stroke-width="3.6"/>
-    <path d="M6.5 3.6 10.5 7 6.5 10.4M24 3.6 28 7 24 10.4" stroke="#fff" stroke-width="2"/>
-  </g>
-  <g fill="${ink}" stroke="#fff" stroke-width=".8">
-    <circle cx="6" cy="13" r="2.3"/><circle cx="13.5" cy="13" r="2.3"/><circle cx="25.5" cy="13" r="2.3"/><circle cx="33" cy="13" r="2.3"/>
-  </g>
+// A box in the line colour with an arrow pointing right; turned by iconTransform()
+// to point the way the bus is going. The outline shows the bike status.
+const busSvg = (body, ink) => `<svg class="bus-icon" viewBox="0 0 26 14" width="26" height="14" aria-hidden="true">
+  <rect x="1" y="1" width="24" height="12" rx="3" fill="${body}" stroke="${ink}" stroke-width="2"/>
+  <path d="M6 7h11M13.5 3.6 17.5 7l-4 3.4" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>`;
 
 const busIcons = new Map();
@@ -367,9 +359,9 @@ function busIcon(status, unusual) {
     busIcons.set(key, L.divIcon({
       className: 'bus-marker',
       html: busSvg(unusual ? LINE_COLORS.unusual : LINE_COLORS.expected, BUS_INK[status]),
-      iconSize: [40, 16],
-      iconAnchor: [20, 8],
-      popupAnchor: [0, -8],
+      iconSize: [26, 14],
+      iconAnchor: [13, 7],
+      popupAnchor: [0, -7],
     }));
   }
   return busIcons.get(key);

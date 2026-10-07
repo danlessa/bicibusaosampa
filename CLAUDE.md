@@ -101,9 +101,9 @@ To check UI changes, run the dev server and take screenshots with Playwright. Us
   is closed or stopped.
 - **Stations:** official Metrô or CPTM icons (`public/icons/`, from Wikimedia Commons),
   chosen by each line's `mode`.
-- **Bus icons:** a side view with chevrons pointing the direction of travel. The body
-  is green on an expected line and purple when the bus runs off its usual lines. The
-  outline is black when bikes are allowed and red when they aren't.
+- **Bus icons:** a rounded box with a white arrow pointing the direction of travel.
+  The box is green on an expected line and purple when the bus runs off its usual
+  lines. The outline is black when bikes are allowed and red when they aren't.
 - **Bus routes:** green (expected) or purple (off-route), hatched black. They're offset
   into lanes so both directions and shared corridors show side by side; offset and
   width shrink when zoomed out.

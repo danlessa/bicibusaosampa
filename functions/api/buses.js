@@ -21,9 +21,12 @@ async function login(token) {
     method: 'POST',
     headers: { 'Content-Length': '0' },
   });
-  const ok = res.ok && (await res.text()).trim() === 'true';
+  const body = (await res.text()).trim();
   const cookie = res.headers.get('set-cookie')?.match(/apiCredentials=[^;]+/)?.[0];
-  if (!ok || !cookie) throw new Error('Olho Vivo login failed (check SPTRANS_TOKEN)');
+  if (!res.ok || body !== 'true' || !cookie) {
+    // Say what came back: `false` means a rejected token; HTML means we were blocked.
+    throw new Error(`Olho Vivo login failed: HTTP ${res.status}, ${body.slice(0, 60) || 'empty body'}${cookie ? '' : ', no cookie'}`);
+  }
   credentials = cookie;
 }
 
