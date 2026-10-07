@@ -197,3 +197,11 @@ footer a { color: var(--accent); }
 }
 #bus-lines summary,
 #bus-unusual summary { cursor: pointer; margin: 8px 0 4px; font-weight: 600; }
+
+/* Collapsible panel sections: the h2 sits inside the summary. */
+#panel summary { cursor: pointer; }
+#panel summary > h2 { display: inline; }
+#legend-section > details > summary,
+#rail-details > summary,
+#bus-details > summary { margin: 16px 0 8px; color: var(--muted); }
+.legend-title { margin: 10px 0 4px; font-size: 12px; font-weight: 600; }

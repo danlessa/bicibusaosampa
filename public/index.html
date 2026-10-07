@@ -36,48 +36,57 @@
     <div id="panel-body">
       <p id="clock" class="clock"></p>
 
+      <section id="legend-section">
+        <details open>
+          <summary><h2>Legenda</h2></summary>
+          <h3 class="legend-title">Metrô e trens</h3>
+          <ul class="legend">
+            <li><span class="dot ok"></span>Bicicleta liberada agora</li>
+            <li><span class="dot wait"></span>Em operação, fora do horário da bici</li>
+            <li><span class="dot closed"></span>Fechada</li>
+          </ul>
+          <h3 class="legend-title">Ônibus</h3>
+          <ul class="legend">
+            <li><span class="swatch" style="background:#16a34a"></span>Bici liberada agora, linha habitual</li>
+            <li><span class="swatch" style="background:#9333ea"></span>Bici liberada agora, fora da rota habitual</li>
+            <li><span class="swatch" style="background:#eab308"></span>Fora do horário da bici, linha habitual</li>
+            <li><span class="swatch" style="background:#f97316"></span>Fora do horário da bici, fora da rota habitual</li>
+          </ul>
+          <h3 class="legend-title">Bicicletários e paraciclos</h3>
+          <ul class="legend">
+            <li><span class="dot" style="background:#16a34a"></span>Livre: gratuito, sem cadastro</li>
+            <li><span class="dot" style="background:#2563eb"></span>Com cadastro no local (gratuito, documento com foto)</li>
+            <li><span class="dot" style="background:#db2777"></span>Pago</li>
+            <li><span class="dot" style="background:#78716c"></span>Só clientes ou autorizados</li>
+            <li><span class="dot closed"></span>Fechado agora</li>
+          </ul>
+          <ul class="legend shapes">
+            <li><span data-parking-shape="bicicletario"></span>Bicicletário: coberto, quase sempre com controle de entrada (a partir do zoom 12)</li>
+            <li><span data-parking-shape="paraciclo"></span>Paraciclo: suporte para prender a bici (a partir do zoom 14)</li>
+          </ul>
+        </details>
+      </section>
+
       <section>
-        <h2>Metrô e trens</h2>
-        <ul class="legend">
-          <li><span class="dot ok"></span>Bicicleta liberada agora</li>
-          <li><span class="dot wait"></span>Em operação, fora do horário da bici</li>
-          <li><span class="dot closed"></span>Fechada</li>
-        </ul>
-        <ul id="rail-list" class="lines"></ul>
+        <details id="rail-details">
+          <summary><h2>Metrô e trens</h2></summary>
+          <ul id="rail-list" class="lines"></ul>
+        </details>
       </section>
 
       <section id="bus-section">
-        <h2>Ônibus <span id="bus-count" class="count"></span></h2>
-        <ul class="legend">
-          <li><span class="swatch" style="background:#16a34a"></span>Bici liberada agora, linha habitual</li>
-          <li><span class="swatch" style="background:#9333ea"></span>Bici liberada agora, fora da rota habitual</li>
-          <li><span class="swatch" style="background:#eab308"></span>Fora do horário da bici, linha habitual</li>
-          <li><span class="swatch" style="background:#f97316"></span>Fora do horário da bici, fora da rota habitual</li>
-        </ul>
-        <p id="bus-status" class="note"></p>
-        <details id="bus-unusual" open hidden>
-          <summary id="bus-unusual-summary">Fora da rota habitual</summary>
-          <ul id="bus-unusual-list" class="lines"></ul>
+        <details id="bus-details">
+          <summary><h2>Ônibus <span id="bus-count" class="count"></span></h2></summary>
+          <p id="bus-status" class="note"></p>
+          <details id="bus-unusual" hidden>
+            <summary id="bus-unusual-summary">Fora da rota habitual</summary>
+            <ul id="bus-unusual-list" class="lines"></ul>
+          </details>
+          <details id="bus-lines">
+            <summary id="bus-lines-summary">Linhas habituais</summary>
+            <ul id="bus-list" class="lines"></ul>
+          </details>
         </details>
-        <details id="bus-lines">
-          <summary id="bus-lines-summary">Linhas habituais</summary>
-          <ul id="bus-list" class="lines"></ul>
-        </details>
-      </section>
-
-      <section id="parking-section">
-        <h2>Bicicletários e paraciclos</h2>
-        <ul class="legend">
-          <li><span class="dot" style="background:#16a34a"></span>Livre: gratuito, sem cadastro</li>
-          <li><span class="dot" style="background:#2563eb"></span>Com cadastro no local (gratuito, documento com foto)</li>
-          <li><span class="dot" style="background:#db2777"></span>Pago</li>
-          <li><span class="dot" style="background:#78716c"></span>Só clientes ou autorizados</li>
-          <li><span class="dot closed"></span>Fechado agora</li>
-        </ul>
-        <ul class="legend shapes">
-          <li><span data-parking-shape="bicicletario"></span>Bicicletário: coberto, quase sempre com controle de entrada (a partir do zoom 12)</li>
-          <li><span data-parking-shape="paraciclo"></span>Paraciclo: suporte para prender a bici (a partir do zoom 14)</li>
-        </ul>
       </section>
 
       <footer>
