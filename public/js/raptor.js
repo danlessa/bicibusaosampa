@@ -21,7 +21,7 @@
 
 import { currentService } from './rail.js';
 import { dayType, toMinutes, windowsFor } from './schedule.js';
-import { bikeModel, flatLeg, PASSIVE_W, pathNodes, snap, snapAround, streetSearch } from './streets.js';
+import { bikeModel, flatLeg, PASSIVE_W, pathNodes, snap, snapAround, stationLeg, streetSearch } from './streets.js';
 import { previousDay, spParts } from './time.js';
 
 export const INF = 0x3fffffff;
@@ -38,7 +38,8 @@ const CHANGE_S = 60;          // getting off one vehicle and onto the next at th
 const PARK_S = 180;           // locking the bike at a bicicletário
 // Effort of getting on board (J): stairs, gates and the last car, with or without the
 // bike. Keeps "least effort" from collecting one-stop rides.
-const BOARD_J = { bus: [8_000, 20_000], rail: [8_000, 40_000] };
+// Stairs and corridors at stations are counted separately (data/stations.json).
+const BOARD_J = { bus: [8_000, 20_000], rail: [2_000, 5_000] };
 const LIVE_HORIZON_S = 2400;  // past this, usual lines stand in for live 23m buses
 const MAX_ROUNDS = 4;         // transit legs
 // Labels this close in both criteria count as the same option.
@@ -117,9 +118,10 @@ function csr(n, pairs) {
  * Prepares the network for queries.
  * transit: data/routing/transit.json; railLines: data/rail-lines.json;
  * bikeBuses: data/bike-buses.json; parking: data/bike-parking.geojson;
- * streets: decodeStreets(data/routing/streets.bin), or null for straight lines.
+ * streets: decodeStreets(data/routing/streets.bin), or null for straight lines;
+ * stations: data/stations.json, or null to ignore time and climbing in stations.
  */
-export function loadNetwork({ transit, railLines, bikeBuses, parking, streets = null }) {
+export function loadNetwork({ transit, railLines, bikeBuses, parking, streets = null, stations = null }) {
   const S = transit.stops.id.length;
   const lat = Float64Array.from(transit.stops.lat), lon = Float64Array.from(transit.stops.lon);
   const grid = new Grid(lat, lon);
@@ -179,7 +181,8 @@ export function loadNetwork({ transit, railLines, bikeBuses, parking, streets = 
 
   return {
     stops: { id: transit.stops.id, name: transit.stops.name, lat, lon, count: S },
-    streets, stopLinks,
+    streets, stopLinks, railStop,
+    station: stations ? stationTable(stations, patterns, transit.stops.name, S) : null,
     grid, patterns, byRouteDir, stopPatterns,
     walkTransfers: csr(S, walk), bikeTransfers: csr(S, bike),
     lots, parkingAt,
@@ -188,6 +191,50 @@ export function loadNetwork({ transit, railLines, bikeBuses, parking, streets = 
     railBikes: railLines.bikeRules.bikes,
     busBikes: bikeBuses.rules.bikes,
   };
+}
+
+/**
+ * Time and climbing between street and platform at every rail stop, and timed
+ * changes between lines, from data/stations.json. Keys are 'GTFS name|line'.
+ */
+export function stationTable(config, patterns, names, S) {
+  const lines = new Map(); // stop → Set of rail refs
+  for (const p of patterns) {
+    if (p.mode === 'bus') continue;
+    for (const s of p.stops) {
+      if (!lines.has(s)) lines.set(s, new Set());
+      lines.get(s).add(p.rail);
+    }
+  }
+  const missing = [];
+  const find = (key) => {
+    const [name, ref] = key.split('|');
+    for (const [s, refs] of lines) if (names[s] === name && refs.has(ref)) return s;
+    missing.push(key);
+    return -1;
+  };
+  const walkS = new Float32Array(S), bikeS = new Float32Array(S), upIn = new Float32Array(S), upOut = new Float32Array(S);
+  const typeOf = new Array(S).fill(null);
+  for (const [s, refs] of lines) typeOf[s] = config.lines[[...refs][0]] ?? null;
+  for (const [key, type] of Object.entries(config.stations ?? {})) {
+    const s = find(key);
+    if (s >= 0) typeOf[s] = type;
+  }
+  for (let s = 0; s < S; s++) {
+    const t = config.types[typeOf[s]];
+    if (!t) continue;
+    walkS[s] = t.walkS; bikeS[s] = t.bikeS; upIn[s] = t.upIn; upOut[s] = t.upOut;
+  }
+  const transfers = new Map(); // stop → [{ to, walkS, bikeS }]
+  for (const x of config.transfers ?? []) {
+    const [a, b] = x.between.map(find);
+    if (a < 0 || b < 0) continue;
+    for (const [from, to] of [[a, b], [b, a]]) {
+      if (!transfers.has(from)) transfers.set(from, []);
+      transfers.get(from).push({ to, walkS: x.walkS, bikeS: x.bikeS });
+    }
+  }
+  return { walkS, bikeS, upIn, upOut, transfers, missing };
 }
 
 // ------------------------------------------------------------------ query day
@@ -329,19 +376,70 @@ function insert(list, label) {
  * Journeys from `from` to `to` ({ lat, lon }) leaving at `date`: the Pareto options in
  * arrival time and energy, sorted by `optimize`: 'time' keeps those within a cap of
  * the fastest; 'energy' keeps the least effort ones whatever they take (up to
- * MAX_TRIP_S). `live`: Map pattern → trips from live-trips.js, or null.
+ * MAX_TRIP_S); 'balanced' ranks both by kcal + timeWeight × minutes (see balance), all of
+ * them, for the caller to cut. `avoidArterials` keeps
+ * bikes off busy roads without a bike lane where it can. `live`: Map pattern → trips
+ * from live-trips.js, or null.
  */
-export function plan(net, { from, to, date = new Date(), profile = 'bike', power = POWER_LEVELS.endorfinado, optimize = 'time', live = null, day = null }) {
+export function plan(net, options) {
+  if (options.optimize !== 'balanced') return search(net, options);
+  const day = options.day ?? queryDay(net, options.date ?? new Date());
+  const fastest = search(net, { ...options, day, optimize: 'time' });
+  const easiest = search(net, { ...options, day, optimize: 'energy' });
+  // All candidates, not just the top few: the panel re-ranks them when k changes.
+  return balance([...fastest, ...easiest], options.timeWeight);
+}
+
+// The time weights the "Balanceado" slider offers (kcal per minute).
+export const TIME_WEIGHTS = [1, 3, 10];
+export const DEFAULT_TIME_WEIGHT = 3;
+
+/**
+ * "Balanceado": journeys without repeats, sorted by U = E + k·T with E in kcal and T
+ * in minutes, the units the panel shows: a minute is worth k kcal. k = 3 by default;
+ * k = 10 leans to the faster journeys, k = 1 to the easier ones.
+ */
+export function balance(journeys, k = DEFAULT_TIME_WEIGHT) {
+  const seen = new Set();
+  const list = journeys.filter((j) => {
+    const key = `${j.arrive}|${Math.round(j.energy)}|${j.legs.map((l) => `${l.kind}:${l.route ?? ''}:${l.to?.stop ?? ''}`).join(',')}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  for (const j of list) j.balance = j.kcal + (k * (j.arrive - j.depart)) / 60;
+  return list.sort((a, b) => a.balance - b.balance || a.arrive - b.arrive);
+}
+
+function search(net, { from, to, date = new Date(), profile = 'bike', power = POWER_LEVELS.endorfinado, optimize = 'time', avoidArterials = true, live = null, day = null }) {
   const prof = PROFILES[profile];
   day ??= queryDay(net, date);
-  const bike = bikeModel(power);
+  const bike = bikeModel(power, { avoidArterials });
   const S = net.stops.count;
   const { lat, lon } = net.stops;
   const g = net.streets;
-  const flat = (layer, m, detour = DETOUR) => flatLeg(MODE[layer], m, bike, detour);
+  // With the bike, `push` walks it (stations: no riding in corridors or on platforms).
+  const flat = (layer, m, detour = DETOUR, push = false) => flatLeg(layer && push ? 'push' : MODE[layer], m, bike, detour);
   const fromPt = { name: 'Origem', ...from }, toPt = { name: 'Destino', ...to };
   const stopPt = (s) => ({ name: net.stops.name[s], lat: lat[s], lon: lon[s], stop: net.stops.id[s] });
   const coords = (nodes) => nodes.map((n) => [g.lat[n], g.lon[n]]);
+
+  // Street ↔ platform at stop s, entering ('in') or leaving ('out'):
+  // { t, e, up, down } or null where there's no station data.
+  const st = net.station;
+  const stationMove = (s, layer, dir) => {
+    if (!st || !net.railStop[s] || !st.walkS[s]) return null;
+    const up = dir === 'in' ? st.upIn[s] : st.upOut[s], down = dir === 'in' ? st.upOut[s] : st.upIn[s];
+    return { ...stationLeg(layer === 1, layer ? st.bikeS[s] : st.walkS[s], up), up, down };
+  };
+  const withStation = (legs, dir, layerOf) => {
+    for (const [key, leg] of legs) {
+      const s = dir === 'in' ? key : key >> 1;
+      const m = stationMove(s, layerOf(key), dir);
+      if (m) { leg.station = m; leg.t += m.t; leg.e += m.e; }
+    }
+    return legs;
+  };
 
   // ---------------------------------------------------------------- street legs
 
@@ -368,7 +466,7 @@ export function plan(net, { from, to, date = new Date(), profile = 'bike', power
         if (c.t <= MAX_TRIP_S) legs.set(s, { t: c.t, e: c.e, path: () => [[from.lat, from.lon], [lat[s], lon[s]]] });
       }
     }
-    return legs;
+    return withStation(legs, 'in', () => layer);
   }
 
   // From the stops to the destination: Map node → leg. Searched backwards from it.
@@ -390,7 +488,7 @@ export function plan(net, { from, to, date = new Date(), profile = 'bike', power
         if (c.t <= MAX_TRIP_S) legs.set(s * 2 + layer, { t: c.t, e: c.e, path: () => [[lat[s], lon[s]], [to.lat, to.lon]] });
       }
     }
-    return legs;
+    return withStation(legs, 'out', (node) => node & 1);
   }
 
   // The best of the street nodes linked to stop s, by the search's own measure.
@@ -400,7 +498,7 @@ export function plan(net, { from, to, date = new Date(), profile = 'bike', power
     for (let k = links.ptr?.[s] ?? 0; k < (links.ptr?.[s + 1] ?? 0); k++) {
       const n = links.to[k];
       if (search.cost[n] === Infinity || !(search.time[n] <= MAX_TRIP_S)) continue;
-      const link = flat(layer, links.dist[k], 1);
+      const link = flat(layer, links.dist[k], 1, net.railStop[s] === 1);
       const t = search.time[n] + link.t, e = search.energy[n] + link.e;
       const score = optimize === 'energy' ? e : t;
       if (!best || score < best.score) best = { n, t, e, score };
@@ -482,10 +580,17 @@ export function plan(net, { from, to, date = new Date(), profile = 'bike', power
       if ((node & 1) === 0) continue;
       const lot = net.parkingAt[node >> 1];
       if (lot < 0) continue;
-      const open = day.lotOpen[lot];
+      const open = day.lotOpen[lot], s = node >> 1;
       for (const l of [...labels]) {
-        if (open && !inMask(open, l.t)) continue;
-        add(k, node - 1, { kind: PARK, prev: l, lot, t: l.t + PARK_S, e: l.e + PASSIVE_W * PARK_S });
+        // At a station, park outside: leave with the bike (or don't go in, when just
+        // arrived from the street), then come back in on foot.
+        let t = l.t, e = l.e, out = null;
+        if (l.kind === ACCESS && l.leg.station) { t -= l.leg.station.t; e -= l.leg.station.e; }
+        else if ((out = stationMove(s, 1, 'out'))) { t += out.t; e += out.e; }
+        if (open && !inMask(open, t)) continue;
+        const parked = t + PARK_S;
+        const back = stationMove(s, 0, 'in');
+        add(k, node - 1, { kind: PARK, prev: l, lot, out, back, parked, t: parked + (back?.t ?? 0), e: e + PASSIVE_W * PARK_S + (back?.e ?? 0) });
       }
     }
   }
@@ -534,15 +639,31 @@ export function plan(net, { from, to, date = new Date(), profile = 'bike', power
       }
     }
 
-    // Walk (or ride) to nearby stops, then maybe park the bike.
+    // Walk (or ride) to nearby stops, then maybe park the bike. A change to or from a
+    // station is walked, pushing the bike if there is one.
     for (const [node, labels] of [...rounds[k]]) {
       const layer = node & 1, s = node >> 1;
       const tr = layer ? net.bikeTransfers : net.walkTransfers;
+      const timed = st?.transfers.get(s) ?? [];
       for (const l of [...labels]) {
         if (l.kind !== RIDE) continue;
+        // Interchanges with a known time (data/stations.json), inside the station.
+        for (const x of timed) {
+          const c = stationLeg(layer === 1, layer ? x.bikeS : x.walkS);
+          add(k, x.to * 2 + layer, { kind: TRANSFER, prev: l, interchange: true, t: l.t + c.t, e: l.e + c.e });
+        }
+        // Otherwise: out of one station (if any), along the street, into the next.
         for (let e = tr.ptr[s]; e < tr.ptr[s + 1]; e++) {
-          const c = flat(layer, tr.dist[e]);
-          add(k, tr.to[e] * 2 + layer, { kind: TRANSFER, prev: l, meters: Math.round(tr.dist[e] * DETOUR), t: l.t + c.t, e: l.e + c.e });
+          const to = tr.to[e];
+          if (timed.some((x) => x.to === to)) continue;
+          const push = layer === 1 && (net.railStop[s] === 1 || net.railStop[to] === 1);
+          if (push && tr.dist[e] > LIMITS.walkTransfer) continue;
+          const out = stationMove(s, layer, 'out'), inn = stationMove(to, layer, 'in');
+          const c = flat(layer, tr.dist[e], DETOUR, push);
+          add(k, to * 2 + layer, {
+            kind: TRANSFER, prev: l, push, out, inn, walk: c, meters: Math.round(tr.dist[e] * DETOUR),
+            t: l.t + (out?.t ?? 0) + c.t + (inn?.t ?? 0), e: l.e + (out?.e ?? 0) + c.e + (inn?.e ?? 0),
+          });
         }
       }
     }
@@ -566,14 +687,26 @@ export function plan(net, { from, to, date = new Date(), profile = 'bike', power
       return { profile, depart: day.now, arrive: label.t, energy: label.e, kcal: kcal(label.e), rides: 0, legs };
     }
     let rides = 0;
+    const stationStep = (s, layer, dir, m, depart) => ({
+      kind: 'station', dir, withBike: layer === 1, at: stopPt(s), to: stopPt(s), depart, arrive: depart + m.t, up: m.up, down: m.down, kcal: kcal(m.e),
+    });
+    // Built from the end backwards; reversed below.
     const s0 = label.node >> 1, layer0 = label.node & 1;
     const lastPath = label.leg.path();
-    legs.push({ kind: MODE[layer0], from: stopPt(s0), to: toPt, depart: label.prev.t, arrive: label.t, kcal: kcal(label.leg.e), path: lastPath, meters: pathMeters(lastPath) });
+    const out0 = label.leg.station;
+    const streetStart = label.prev.t + (out0?.t ?? 0);
+    legs.push({ kind: MODE[layer0], from: stopPt(s0), to: toPt, depart: streetStart, arrive: label.t, kcal: kcal(label.leg.e - (out0?.e ?? 0)), path: lastPath, meters: pathMeters(lastPath) });
+    if (out0) legs.push(stationStep(s0, layer0, 'out', out0, label.prev.t));
+    let parkedNext = false; // the bike was parked right after this label: it never went in
     for (let l = label.prev; l; l = l.prev) {
       const before = l.prev;
+      const here = l.node >> 1, lay = l.node & 1;
       if (l.kind === ACCESS) {
         const path = l.leg.path();
-        legs.push({ kind: MODE[prof.access], from: fromPt, to: stopPt(l.node >> 1), depart: day.now, arrive: l.t, kcal: kcal(l.e), path, meters: pathMeters(path) });
+        const inn = parkedNext ? null : l.leg.station;
+        const arrive = l.t - (l.leg.station?.t ?? 0);
+        if (inn) legs.push(stationStep(here, prof.access, 'in', inn, arrive));
+        legs.push({ kind: MODE[prof.access], from: fromPt, to: stopPt(here), depart: day.now, arrive, kcal: kcal(l.e - (l.leg.station?.e ?? 0)), path, meters: pathMeters(path) });
       } else if (l.kind === RIDE) {
         const p = net.patterns[l.pi], trips = providerFor(l.pi, l.layer);
         legs.push({
@@ -584,19 +717,33 @@ export function plan(net, { from, to, date = new Date(), profile = 'bike', power
         });
         rides++;
       } else if (l.kind === TRANSFER) {
-        const a = before.node >> 1, b = l.node >> 1;
-        legs.push({ kind: MODE[l.node & 1], from: stopPt(a), to: stopPt(b), depart: before.t, arrive: l.t, meters: l.meters, kcal: kcal(l.e - before.e), path: [[lat[a], lon[a]], [lat[b], lon[b]]] });
+        const a = before.node >> 1;
+        if (l.interchange) {
+          legs.push({ kind: 'walk', interchange: true, withBike: lay === 1, from: stopPt(a), to: stopPt(here), depart: before.t, arrive: l.t, meters: 0, kcal: kcal(l.e - before.e), path: [[lat[a], lon[a]], [lat[here], lon[here]]] });
+        } else {
+          let t = before.t;
+          const steps = [];
+          if (l.out) { steps.push(stationStep(a, lay, 'out', l.out, t)); t += l.out.t; }
+          steps.push({ kind: l.push ? 'walk' : MODE[lay], withBike: lay === 1, from: stopPt(a), to: stopPt(here), depart: t, arrive: t + l.walk.t, meters: l.meters, kcal: kcal(l.walk.e), path: [[lat[a], lon[a]], [lat[here], lon[here]]] });
+          t += l.walk.t;
+          if (l.inn) steps.push(stationStep(here, lay, 'in', l.inn, t));
+          legs.push(...steps.reverse());
+        }
       } else if (l.kind === PARK) {
         const lot = net.lots[l.lot];
-        legs.push({ kind: 'park', at: { name: lot.name, lat: lot.lat, lon: lot.lon, access: lot.access }, to: stopPt(l.node >> 1), depart: before.t, arrive: l.t, kcal: kcal(l.e - before.e) });
+        if (l.back) legs.push(stationStep(here, 0, 'in', l.back, l.parked));
+        legs.push({ kind: 'park', at: { name: lot.name, lat: lot.lat, lon: lot.lon, access: lot.access }, to: stopPt(here), depart: l.parked - PARK_S, arrive: l.parked, kcal: kcal(PASSIVE_W * PARK_S) });
+        if (l.out) legs.push(stationStep(here, 1, 'out', l.out, before.t));
       }
+      parkedNext = l.kind === PARK && before?.kind === ACCESS;
     }
     legs.reverse();
     // A transfer next to the first or last leg is the same walk or ride.
     const merged = [];
     for (const leg of legs) {
       const last = merged.at(-1);
-      if (last && (leg.kind === 'walk' || leg.kind === 'bike') && last.kind === leg.kind) {
+      // (Walking with the bike and without it stay apart.)
+      if (last && (leg.kind === 'walk' || leg.kind === 'bike') && last.kind === leg.kind && (leg.kind === 'bike' || !last.withBike === !leg.withBike)) {
         merged[merged.length - 1] = { ...last, to: leg.to, arrive: leg.arrive, meters: last.meters + leg.meters, kcal: last.kcal + leg.kcal, path: [...last.path, ...leg.path] };
       } else merged.push(leg);
     }

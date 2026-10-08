@@ -60,9 +60,18 @@
           <fieldset class="plan-modes plan-optimize">
             <legend class="sr-only">Prioridade</legend>
             <label><input type="radio" name="plan-optimize" value="time" checked><span>⏱️ Mais rápido</span></label>
+            <label><input type="radio" name="plan-optimize" value="balanced"><span>⚖️ Balanceado</span></label>
             <label><input type="radio" name="plan-optimize" value="energy"><span>🔋 Menos esforço</span></label>
           </fieldset>
+          <div class="plan-field plan-weight" id="plan-weight-field" hidden>
+            <label for="plan-weight">Equilíbrio</label>
+            <span class="end">🔋</span>
+            <input type="range" id="plan-weight" min="0" max="2" step="1" value="1" aria-describedby="plan-weight-label">
+            <span class="end">⏱️</span>
+            <output id="plan-weight-label" for="plan-weight"></output>
+          </div>
           <label class="plan-field" id="plan-power-field">Ritmo <select id="plan-power"></select></label>
+          <label class="plan-check" id="plan-arterials-field"><input type="checkbox" id="plan-arterials" checked> Evitar avenidas e vias expressas sem ciclovia ou ciclofaixa</label>
           <div class="plan-field">
             <label for="plan-at">Saída</label>
             <input type="datetime-local" id="plan-at">
@@ -70,7 +79,7 @@
           </div>
           <p id="plan-status" class="note">Marque a origem e o destino. Também dá para tocar e segurar no mapa.</p>
           <ol id="plan-results" class="plan-results"></ol>
-          <p class="note">Protótipo. "De bici" pode deixar a bici num bicicletário de estação ou terminal; "Sempre com ela" nunca a deixa. "Menos esforço" busca o menor gasto de calorias (acima do repouso), mesmo que demore mais: pedalar e andar contam, ir sentado ou em pé no ônibus e no trem quase nada. Trechos a pé e de bici pelas ruas do OpenStreetMap, com o relevo; fora da área coberta, em linha reta. Com saída agora, os ônibus com bici são os superarticulados na rua; para depois, as linhas onde eles costumam rodar.</p>
+          <p class="note">Protótipo. "De bici" pode deixar a bici num bicicletário de estação ou terminal; "Sempre com ela" nunca a deixa. "Menos esforço" busca o menor gasto de calorias (acima do repouso), mesmo que demore mais: pedalar e andar contam, ir sentado ou em pé no ônibus e no trem quase nada. "Balanceado" fica no meio: soma calorias e minutos, com o peso do tempo escolhido no controle Equilíbrio (1 minuto vale 1, 3 ou 10 kcal; 3 por padrão). Trechos a pé e de bici pelas ruas do OpenStreetMap, com o relevo; fora da área coberta, em linha reta. Dentro das estações, a bici vai empurrada; entrar, sair e fazer baldeação contam tempo e subidas estimados. Com saída agora, os ônibus com bici são os superarticulados na rua; para depois, as linhas onde eles costumam rodar.</p>
         </details>
       </section>
 

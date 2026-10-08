@@ -2,7 +2,7 @@
 // and the journeys from planner-worker.js, listed in the panel and drawn on the map.
 
 import { ACCESS } from './parking.js';
-import { flatSpeed, POWER_LEVELS } from './raptor.js';
+import { balance, DEFAULT_TIME_WEIGHT, flatSpeed, POWER_LEVELS, TIME_WEIGHTS } from './raptor.js';
 
 const PACES = [
   ['suave', 'Suave'],
@@ -10,8 +10,8 @@ const PACES = [
   ['intenso', 'Intenso'],
   ['competicao', 'Competição'],
 ];
-const COLORS = { walk: '#57534e', bike: '#0f766e', busBike: '#16a34a', bus: '#1c1917' };
-const MODE_ICON = { walk: '🚶', bike: '🚲', park: '🅿️', bus: '🚌', metro: '🚇', train: '🚆' };
+const COLORS = { walk: '#57534e', bike: '#dc2626', busBike: '#16a34a', bus: '#1c1917' };
+const MODE_ICON = { walk: '🚶', bike: '🚲', park: '🅿️', station: '🚉', bus: '🚌', metro: '🚇', train: '🚆' };
 
 const $ = (sel) => document.querySelector(sel);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
@@ -47,14 +47,25 @@ export function initPlanner({ map, railLines, getBuses }) {
   const savedOptimize = recall('planOptimize');
   if (savedOptimize) for (const r of document.querySelectorAll('input[name="plan-optimize"]')) r.checked = r.value === savedOptimize;
 
-  map.createPane('plan').style.zIndex = 430;
-  const renderer = L.canvas({ pane: 'plan', tolerance: 4 });
+  // The planned trip sits above everything on the map (Leaflet's markers are at 600),
+  // below tooltips (650) and popups (700). SVG, not canvas: a canvas this high would
+  // swallow clicks meant for the buses and stations underneath.
+  map.createPane('plan').style.zIndex = 640;
+  const iconPane = map.createPane('planIcons');
+  iconPane.style.zIndex = 642;
+  iconPane.style.pointerEvents = 'none';
+  map.createPane('planPins').style.zIndex = 645;
+  const renderer = L.svg({ pane: 'plan' });
   const routeLayer = L.layerGroup().addTo(map);
+  const iconLayer = L.layerGroup().addTo(map);
+  let iconLegs = []; // { path, glyph, color } of the selected journey
   const points = { from: null, to: null };
   const markers = { from: null, to: null };
   let picking = null;
   let journeys = [];
+  let candidates = null; // all of "Balanceado"'s options, re-ranked when its weight changes
   let selected = 0;
+  const SHOWN = 6;
 
   // ---------------------------------------------------------------- worker
 
@@ -100,7 +111,7 @@ export function initPlanner({ map, railLines, getBuses }) {
   function setPoint(which, latlng) {
     points[which] = { lat: latlng.lat, lon: latlng.lng };
     if (!markers[which]) {
-      markers[which] = L.marker(latlng, { icon: pinIcon(which === 'from' ? 'A' : 'B'), draggable: true, keyboard: false, zIndexOffset: 1000 })
+      markers[which] = L.marker(latlng, { pane: 'planPins', icon: pinIcon(which === 'from' ? 'A' : 'B'), draggable: true, keyboard: false })
         .on('dragend', (e) => setPoint(which, e.target.getLatLng()))
         .addTo(map);
     } else {
@@ -181,6 +192,8 @@ export function initPlanner({ map, railLines, getBuses }) {
     stopPicking();
     journeys = [];
     routeLayer.clearLayers();
+    iconLegs = [];
+    iconLayer.clearLayers();
     results.innerHTML = '';
     status.textContent = '';
   });
@@ -194,11 +207,37 @@ export function initPlanner({ map, railLines, getBuses }) {
 
   const profile = () => document.querySelector('input[name="plan-profile"]:checked').value;
   const optimize = () => document.querySelector('input[name="plan-optimize"]:checked').value;
-  for (const r of document.querySelectorAll('input[name="plan-optimize"]')) {
-    r.addEventListener('change', () => { remember('planOptimize', optimize()); update(); });
+  const weight = $('#plan-weight');
+  const weightLabel = $('#plan-weight-label');
+  const WEIGHT_TEXT = TIME_WEIGHTS.map((k) => `1 min vale ${k} kcal`);
+  const savedWeight = TIME_WEIGHTS.indexOf(Number(recall('planTimeWeightK')));
+  weight.value = String(savedWeight >= 0 ? savedWeight : TIME_WEIGHTS.indexOf(DEFAULT_TIME_WEIGHT));
+  const timeWeight = () => TIME_WEIGHTS[Number(weight.value)];
+  function syncWeight() {
+    $('#plan-weight-field').hidden = optimize() !== 'balanced';
+    weightLabel.textContent = WEIGHT_TEXT[Number(weight.value)];
   }
+  syncWeight();
+  for (const r of document.querySelectorAll('input[name="plan-optimize"]')) {
+    r.addEventListener('change', () => { remember('planOptimize', optimize()); syncWeight(); update(); });
+  }
+  // Only re-ranks: the candidates don't depend on the weight.
+  weight.addEventListener('input', () => {
+    remember('planTimeWeightK', String(timeWeight()));
+    syncWeight();
+    if (!candidates) return;
+    journeys = balance(candidates, timeWeight()).slice(0, SHOWN);
+    selected = 0;
+    render();
+  });
   const at = $('#plan-at');
-  function syncPower() { $('#plan-power-field').hidden = profile() === 'walk'; }
+  const arterials = $('#plan-arterials');
+  arterials.checked = recall('planAvoidArterials') !== '0';
+  arterials.addEventListener('change', () => { remember('planAvoidArterials', arterials.checked ? '1' : '0'); update(); });
+  function syncPower() {
+    $('#plan-power-field').hidden = profile() === 'walk';
+    $('#plan-arterials-field').hidden = profile() === 'walk';
+  }
   syncPower();
   for (const r of document.querySelectorAll('input[name="plan-profile"]')) {
     r.addEventListener('change', () => { remember('planProfile', profile()); syncPower(); update(); });
@@ -219,9 +258,10 @@ export function initPlanner({ map, railLines, getBuses }) {
     // The departure field is São Paulo time, which is UTC-3 all year.
     const later = at.value ? new Date(`${at.value}-03:00`) : null;
     const vehicles = later ? null : getBuses();
+    const mode = optimize();
     status.textContent = loaded ? 'Calculando…' : 'Baixando a rede de transporte (só na primeira vez)…';
     const reply = await ask({
-      kind: 'plan', from: points.from, to: points.to, profile: profile(), optimize: optimize(),
+      kind: 'plan', from: points.from, to: points.to, profile: profile(), optimize: mode, timeWeight: timeWeight(), avoidArterials: arterials.checked,
       power: POWER_LEVELS[power.value], at: (later ?? new Date()).getTime(), vehicles,
     });
     if (id !== searchId) return;
@@ -230,7 +270,8 @@ export function initPlanner({ map, railLines, getBuses }) {
       return;
     }
     loaded = true;
-    journeys = reply.journeys;
+    candidates = mode === 'balanced' ? reply.journeys : null;
+    journeys = reply.journeys.slice(0, SHOWN);
     selected = 0;
     const source = later ? 'ônibus pelos horários das linhas habituais'
       : reply.live ? 'superarticulados ao vivo' : 'sem dados ao vivo: ônibus pelas linhas habituais';
@@ -261,15 +302,26 @@ export function initPlanner({ map, railLines, getBuses }) {
   function summary(j) {
     return j.legs.map((leg) => {
       if (leg.kind === 'ride') return `${MODE_ICON[leg.mode]}${rideBadge(leg)}`;
+      if (leg.kind === 'station') return null; // inside the ride's time in the summary
       if (leg.kind === 'park') return MODE_ICON.park;
       return `${MODE_ICON[leg.kind]}<small>${minutes(leg.arrive - leg.depart)}</small>`;
-    }).join('<span class="sep">›</span>');
+    }).filter(Boolean).join('<span class="sep">›</span>');
   }
 
   function legDetail(leg) {
     const span = `${hhmm(leg.depart)}–${hhmm(leg.arrive)}`;
+    if (leg.kind === 'station') {
+      const climb = leg.up ? `sobe ${leg.up} m` : leg.down ? `desce ${leg.down} m` : '';
+      const how = leg.withBike ? 'com a bici, por escada fixa ou elevador' : '';
+      return `<li><span class="leg-icon">${MODE_ICON.station}</span><div><b>${leg.dir === 'in' ? 'Entrar na' : 'Sair da'} estação ${esc(leg.at.name)}</b>
+        <span class="detail">${span} · ${minutes(leg.arrive - leg.depart)}${climb ? ` · ${climb}` : ''} · ${kcal(leg.kcal)}${how ? ` · ${how}` : ''}</span></div></li>`;
+    }
+    if (leg.interchange) {
+      return `<li><span class="leg-icon">${MODE_ICON.walk}</span><div><b>Baldeação: ${esc(leg.from.name)} → ${esc(leg.to.name)}</b>
+        <span class="detail">${span} · ${minutes(leg.arrive - leg.depart)} a pé${leg.withBike ? ', empurrando a bici' : ''} · ${kcal(leg.kcal)}</span></div></li>`;
+    }
     if (leg.kind === 'walk' || leg.kind === 'bike') {
-      const verb = leg.kind === 'walk' ? 'A pé' : 'De bici';
+      const verb = leg.kind === 'bike' ? 'De bici' : leg.withBike ? 'A pé, empurrando a bici,' : 'A pé';
       return `<li><span class="leg-icon">${MODE_ICON[leg.kind]}</span><div><b>${verb} até ${esc(leg.to.name)}</b>
         <span class="detail">${span} · ${minutes(leg.arrive - leg.depart)} · ${km(leg.meters)} · ${kcal(leg.kcal)}</span></div></li>`;
     }
@@ -308,12 +360,15 @@ export function initPlanner({ map, railLines, getBuses }) {
 
   function draw() {
     routeLayer.clearLayers();
+    iconLegs = [];
     const j = journeys[selected];
     if (!j) return;
     const bounds = L.latLngBounds([]);
     for (const leg of j.legs) {
+      if (leg.kind === 'station') continue;
       if (leg.kind === 'park') {
         L.marker([leg.at.lat, leg.at.lon], {
+          pane: 'planPins',
           icon: L.divIcon({ className: 'plan-park', html: '🅿️', iconSize: [22, 22], iconAnchor: [11, 11] }),
           keyboard: false,
         }).bindTooltip(`Deixe a bici: ${esc(leg.at.name)}`).addTo(routeLayer);
@@ -321,12 +376,16 @@ export function initPlanner({ map, railLines, getBuses }) {
       }
       const path = leg.path ?? [[leg.from.lat, leg.from.lon], [leg.to.lat, leg.to.lon]];
       const color = legColor(leg);
-      if (leg.kind === 'ride') {
-        L.polyline(path, { renderer, color: '#ffffff', weight: 9, opacity: 0.9, interactive: false }).addTo(routeLayer);
-        L.polyline(path, { renderer, color, weight: 6 }).bindTooltip(`${lineName(leg)} · sentido ${esc(leg.headsign.trim())}`).addTo(routeLayer);
+      // Riding legs are a trail of icons (bike, bus wheel, rail track) over a thin line
+      // that keeps the shape on curves; walking stays a dotted line.
+      const glyph = leg.kind === 'bike' ? 'bike' : leg.kind === 'ride' ? (leg.mode === 'bus' ? 'wheel' : 'rail') : null;
+      if (glyph) {
+        const line = L.polyline(path, { renderer, color, weight: 3, opacity: 0.55 }).addTo(routeLayer);
+        if (leg.kind === 'ride') line.bindTooltip(`${lineName(leg)} · sentido ${esc(leg.headsign.trim())}`);
+        iconLegs.push({ path, glyph, color });
       } else {
-        L.polyline(path, { renderer, color: '#ffffff', weight: leg.kind === 'bike' ? 8 : 7, opacity: 0.8, interactive: false }).addTo(routeLayer);
-        L.polyline(path, { renderer, color, weight: leg.kind === 'bike' ? 5 : 4, dashArray: leg.kind === 'bike' ? null : '1 7', lineCap: 'round' }).addTo(routeLayer);
+        L.polyline(path, { renderer, color: '#ffffff', weight: 7, opacity: 0.8, interactive: false }).addTo(routeLayer);
+        L.polyline(path, { renderer, color, weight: 4, dashArray: '1 7', lineCap: 'round' }).addTo(routeLayer);
       }
       for (const p of path) bounds.extend(p);
     }
@@ -339,5 +398,56 @@ export function initPlanner({ map, railLines, getBuses }) {
       paddingBottomRight: [60, bottomSheet ? size.y - box.top + 30 : 30],
       maxZoom: 15,
     });
+    placeIcons();
   }
+
+  // ---------------------------------------------------------------- icon trail
+
+  const ICON_GAP = 26;  // px between icons along the route
+  const ICON_SIZE = 18;
+  // White glyphs on a disc in the leg colour (24×24 view box, drawn facing east/up).
+  const GLYPHS = {
+    bike: '<circle cx="6" cy="15" r="4"/><circle cx="18" cy="15" r="4"/><path d="M6 15l4-7h6l2 7M10 8l3 7M8 5h4M15 6h3"/>',
+    wheel: '<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2"/><path d="M12 4v6M12 14v6M4 12h6M14 12h6M6.3 6.3l4.3 4.3M13.4 13.4l4.3 4.3M17.7 6.3l-4.3 4.3M10.6 13.4l-4.3 4.3"/>',
+    rail: '<path d="M8.5 3v18M15.5 3v18M5.5 6.5h13M5.5 12h13M5.5 17.5h13"/>',
+  };
+
+  function trailIcon(glyph, color, angle) {
+    // Rails turn with the track; the bike faces where it's going; the wheel doesn't care.
+    const turn = glyph === 'rail' ? `rotate(${angle + 90}deg)` : glyph === 'bike' && Math.cos((angle * Math.PI) / 180) < 0 ? 'scaleX(-1)' : '';
+    return L.divIcon({
+      className: 'plan-trail',
+      html: `<span style="background:${color}"><svg viewBox="0 0 24 24" style="transform:${turn}">${GLYPHS[glyph]}</svg></span>`,
+      iconSize: [ICON_SIZE, ICON_SIZE],
+      iconAnchor: [ICON_SIZE / 2, ICON_SIZE / 2],
+    });
+  }
+
+  // Icons every ICON_GAP px along each leg, only where the map shows them.
+  function placeIcons() {
+    iconLayer.clearLayers();
+    if (!iconLegs.length) return;
+    const view = map.getPixelBounds().pad(0.1);
+    for (const { path, glyph, color } of iconLegs) {
+      const pts = path.map((p) => map.project(p));
+      let next = ICON_GAP / 2;
+      let walked = 0;
+      for (let i = 1; i < pts.length; i++) {
+        const a = pts[i - 1], b = pts[i];
+        const len = a.distanceTo(b);
+        if (!len) continue;
+        const angle = (Math.atan2(b.y - a.y, b.x - a.x) * 180) / Math.PI;
+        while (next <= walked + len) {
+          const f = (next - walked) / len;
+          const p = L.point(a.x + (b.x - a.x) * f, a.y + (b.y - a.y) * f);
+          if (view.contains(p)) {
+            L.marker(map.unproject(p), { pane: 'planIcons', icon: trailIcon(glyph, color, angle), interactive: false, keyboard: false }).addTo(iconLayer);
+          }
+          next += ICON_GAP;
+        }
+        walked += len;
+      }
+    }
+  }
+  map.on('zoomend moveend', placeIcons);
 }

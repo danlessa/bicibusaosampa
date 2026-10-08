@@ -3,7 +3,7 @@
 //
 //   node scripts/plan.mjs --from=-23.5614,-46.6558 --to=-23.5428,-46.4719
 //        [--at 2026-10-07T11:00] [--power suave|endorfinado|intenso|competicao|<W>]
-//        [--profile walk,bike,carry] [--optimize time|energy] [--offline]
+//        [--profile walk,bike,carry] [--optimize time|energy|balanced] [--time-weight 1|3|10] [--allow-arterials] [--offline]
 //
 // --at is São Paulo time; without it, now. Live 23m buses come from
 // busao.bicisampa.info/api/buses unless --offline (or --at is set).
@@ -33,6 +33,8 @@ const { values: args } = parseArgs({
     power: { type: 'string', default: 'endorfinado' },
     profile: { type: 'string', default: 'walk,bike' },
     optimize: { type: 'string', default: 'time' },
+    'allow-arterials': { type: 'boolean', default: false },
+    'time-weight': { type: 'string', default: '3' },
     offline: { type: 'boolean', default: false },
   },
 });
@@ -54,6 +56,7 @@ if (existsSync(streetsFile)) {
 }
 const net = loadNetwork({
   streets,
+  stations: await readJson('stations.json'),
   transit: await readJson('routing/transit.json'),
   railLines: await readJson('rail-lines.json'),
   bikeBuses: await readJson('bike-buses.json'),
@@ -80,19 +83,25 @@ const km = (m) => (m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${m} m`);
 
 function describe(leg) {
   const span = `${hhmm(leg.depart)}–${hhmm(leg.arrive)}`;
-  if (leg.kind === 'walk') return `🚶 ${span} ${leg.from.name} → ${leg.to.name} (${km(leg.meters)})`;
+  if (leg.interchange) return `🚶 ${span} baldeação ${leg.from.name} → ${leg.to.name}${leg.withBike ? ' empurrando a bici' : ''}`;
+  if (leg.kind === 'walk') return `🚶 ${span} ${leg.from.name} → ${leg.to.name} (${km(leg.meters)})${leg.withBike ? ' empurrando a bici' : ''}`;
   if (leg.kind === 'bike') return `🚲 ${span} ${leg.from.name} → ${leg.to.name} (${km(leg.meters)})`;
+  if (leg.kind === 'station') {
+    const climb = leg.up ? `sobe ${leg.up} m` : leg.down ? `desce ${leg.down} m` : '';
+    return `🚉 ${span} ${leg.dir === 'in' ? 'entra na' : 'sai da'} estação ${leg.at.name}${leg.withBike ? ' com a bici' : ''}${climb ? ` (${climb})` : ''}`;
+  }
   if (leg.kind === 'park') return `🅿️  ${span} deixa a bici: ${leg.at.name} (${leg.at.access})`;
   const line = leg.mode === 'bus' ? leg.route : `Linha ${leg.rail}`;
   const tag = leg.live ? ` · ônibus ${leg.live} ao vivo` : leg.estimated ? ' · estimado (linha habitual)' : '';
   return `${MODE_ICON[leg.mode]} ${span} ${line} sentido ${leg.headsign}: ${leg.from.name} → ${leg.to.name} (${leg.stops} paradas)${leg.withBike ? ' com a bici' : ''}${tag}`;
 }
 
-console.log(`saída ${hhmm(day.now)} · ${args.power} (${power} W) · ${args.optimize === 'energy' ? 'menos esforço' : 'mais rápido'}\n`);
+console.log(`saída ${hhmm(day.now)} · ${args.power} (${power} W) · ${{ energy: 'menos esforço', balanced: 'balanceado' }[args.optimize] ?? 'mais rápido'}\n`);
 for (const profile of args.profile.split(',')) {
   t = performance.now();
-  const journeys = plan(net, { from: point(args.from), to: point(args.to), profile, power, optimize: args.optimize, live, day });
+  const journeys = plan(net, { from: point(args.from), to: point(args.to), profile, power, optimize: args.optimize, timeWeight: Number(args['time-weight']), avoidArterials: !args['allow-arterials'], live, day });
   console.log(`== ${PROFILE_NAMES[profile]} (${Math.round(performance.now() - t)} ms)`);
+  journeys.splice(6);
   if (!journeys.length) console.log('  nenhuma opção');
   for (const j of journeys) {
     console.log(`  ${hhmm(j.depart)} → ${hhmm(j.arrive)} · ${Math.round((j.arrive - j.depart) / 60)} min · ${Math.round(j.kcal)} kcal · ${j.rides} condução(ões)`);

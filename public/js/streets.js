@@ -29,6 +29,9 @@ export const PASSIVE_W = 0.3 * 1.163 * RIDER.body;
 // foot, steps): the search prefers calmer streets at this exchange rate.
 const BIKE_COMFORT = [0.8, 1, 1.1, 1.25, 1.5, 2, 1, 1];
 const LANE_COMFORT = 0.85;
+// "Evitar avenidas": secondary, primary and trunk roads without a bike lane or track
+// count this many times more, so they're used only where there's no other way.
+const ARTERIAL_PENALTY = 5;
 const FLAG = { oneway: 8, noBike: 16, noWalk: 32, infra: 64, push: 128 };
 
 // ------------------------------------------------------------------ decode
@@ -157,8 +160,11 @@ export function walkCost(grade) {
 
 const GRADE_STEP = 0.0025, GRADE_MAX = 0.3, GRADE_BINS = Math.round((2 * GRADE_MAX) / GRADE_STEP) + 1;
 
-/** Speed and energy model of a rider at `power` W on the flat. */
-export function bikeModel(power) {
+/**
+ * Speed and energy model of a rider at `power` W on the flat. `avoidArterials` steers
+ * the route off busy roads without bike infrastructure (see ARTERIAL_PENALTY).
+ */
+export function bikeModel(power, { avoidArterials = false } = {}) {
   const vFlat = solveSpeed(power, 0);
   const speed = new Float64Array(GRADE_BINS);
   for (let b = 0; b < GRADE_BINS; b++) {
@@ -177,7 +183,7 @@ export function bikeModel(power) {
     beta: (RIDER.mass * G) / RIDER.kEff,
     abRatio: RIDER.crr + aero / (RIDER.mass * G),
   };
-  return { power, vFlat, speed, cost };
+  return { power, vFlat, speed, cost, avoidArterials };
 }
 
 /** amora's v2 leg energy (J) for `d` m with height change `dh` m. */
@@ -205,16 +211,34 @@ export function edgeCost(mode, d, dh, flags, bike) {
   const b = Math.max(0, Math.min(GRADE_BINS - 1, Math.round((grade + GRADE_MAX) / GRADE_STEP)));
   const t = d / bike.speed[b];
   const e = Math.max(PASSIVE_W * t, legEnergy(d, dh, bike.cost) / MUSCLE_EFFICIENCY);
-  const comfort = flags & FLAG.infra ? Math.min(LANE_COMFORT, BIKE_COMFORT[cls]) : BIKE_COMFORT[cls];
+  let comfort = flags & FLAG.infra ? Math.min(LANE_COMFORT, BIKE_COMFORT[cls]) : BIKE_COMFORT[cls];
+  if (bike.avoidArterials && cls >= 3 && cls <= 5 && !(flags & FLAG.infra)) comfort *= ARTERIAL_PENALTY;
   return { t, e, comfort };
 }
 
-/** Straight-line fallback (no street graph): flat ground, `detour` × distance. */
+/**
+ * A leg on flat ground, `detour` × the straight-line distance: the fallback without the
+ * street graph, and short links and transfers. Mode 'push' is walking with the bike,
+ * as inside stations, where riding isn't allowed.
+ */
 export function flatLeg(mode, meters, bike, detour = 1.3) {
   const d = meters * detour;
   if (mode === 'walk') return { t: d / WALK_MPS, e: walkCost(0) * RIDER.body * d };
+  if (mode === 'push') return { t: d / (WALK_MPS * PUSH_FACTOR), e: walkCost(0) * RIDER.mass * d };
   const t = d / bike.speed[Math.round(GRADE_MAX / GRADE_STEP)];
   return { t, e: Math.max(PASSIVE_W * t, legEnergy(d, 0, bike.cost) / MUSCLE_EFFICIENCY) };
+}
+
+/**
+ * Moving through a station (street ↔ platform, or a corridor between lines) for `t`
+ * seconds, climbing `up` metres. On foot the escalators do the climbing: about half
+ * of walking effort. With the bike there are no escalators: walk it, and carry rider
+ * and bike up the stairs.
+ */
+export function stationLeg(withBike, t, up = 0) {
+  if (!withBike) return { t, e: 0.5 * walkCost(0) * RIDER.body * WALK_MPS * t };
+  const pushing = walkCost(0) * RIDER.mass * WALK_MPS * PUSH_FACTOR * t;
+  return { t, e: pushing + (RIDER.mass * G * up) / MUSCLE_EFFICIENCY };
 }
 
 // ------------------------------------------------------------------ search

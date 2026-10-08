@@ -38,11 +38,16 @@ append `window.__map = map;`.
     - `raptor.js`: trip planner (prototype). McRAPTOR over `data/routing/transit.json`
       with two criteria, arrival time and energy (net kcal), and every stop in two
       layers, with and without the bike. "Mais rápido" keeps options within the fastest +
-      max(15 min, 30%); "Menos esforço" ignores time (up to a 3 h trip) and sorts by kcal.
+      max(15 min, 30%); "Menos esforço" ignores time (up to a 3 h trip) and sorts by kcal;
+      "Balanceado" runs both and sorts all their options by U = kcal + k × minutes
+      (`balance()`), k = 1, 3 (default) or 10 from the panel's "Equilíbrio" slider, which
+      re-ranks the returned candidates without a new search.
     - `streets.js`: street graph (`data/routing/streets.bin`): decoding, snapping, a
       Dijkstra for walking/cycling legs with one-ways, pushing and slopes. Bike speed and
       energy follow amora's model (power level on the flat, 2× on climbs); walking uses
       Tobler and Minetti. Without the file, legs fall back to straight lines × 1.3.
+      "Evitar avenidas" (on by default) counts secondary, primary and trunk roads
+      without a bike lane or track 5× in route choice; reported times stay real.
     - `live-trips.js`: live 23m buses from `/api/buses` turned into planner trips on
       the line they're actually running.
     - `planner.js` + `planner-worker.js`: the "Planejar viagem" panel section. The

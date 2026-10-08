@@ -1,0 +1,60 @@
+{
+  "_comment": "Estações de metrô e trem para o planejador de viagens. ESTIMATIVAS a corrigir com medições: tempo para ir da rua à plataforma (e da plataforma à rua) a pé e com a bici, e quantos metros se sobe em cada sentido. Com a bici não se usa escada rolante (escada fixa ou elevador), por isso demora mais e cansa mais. 'types' são os tipos de estação; 'lines' dá o tipo padrão de cada linha; 'stations' troca o tipo de uma estação (chave 'Nome no GTFS|linha'); 'transfers' são as baldeações entre linhas, com o tempo total a pé e com a bici (empurrando), valendo nos dois sentidos. walkS e bikeS em segundos; upIn e upOut em metros subidos ao entrar e ao sair.",
+  "types": {
+    "profunda": { "description": "subterrânea profunda (Linhas 2, 4 e 6)", "walkS": 150, "bikeS": 300, "upIn": 0, "upOut": 25 },
+    "subterranea": { "description": "subterrânea rasa", "walkS": 90, "bikeS": 210, "upIn": 0, "upOut": 12 },
+    "elevada": { "description": "elevada, sobre viaduto", "walkS": 90, "bikeS": 210, "upIn": 10, "upOut": 0 },
+    "superficie": { "description": "no nível da rua, com passarela sobre os trilhos (CPTM e Linha 3 Leste)", "walkS": 90, "bikeS": 180, "upIn": 7, "upOut": 7 }
+  },
+  "lines": {
+    "1": "subterranea", "2": "profunda", "3": "superficie", "4": "profunda", "5": "subterranea", "6": "profunda",
+    "7": "superficie", "8": "superficie", "9": "superficie", "10": "superficie", "11": "superficie", "12": "superficie", "13": "superficie",
+    "15": "elevada", "17": "elevada"
+  },
+  "stations": {
+    "Armênia|1": "elevada",
+    "Portuguesa-tietê|1": "elevada",
+    "Carandiru|1": "elevada",
+    "Santana|1": "elevada",
+    "S. N. Sra. De Fátima-sumaré|2": "elevada",
+    "Marechal Deodoro|3": "subterranea",
+    "Santa Cecília|3": "subterranea",
+    "República|3": "subterranea",
+    "Anhangabaú|3": "subterranea",
+    "Sé|3": "subterranea",
+    "Capão Redondo|5": "elevada",
+    "Campo Limpo|5": "elevada",
+    "Vila Das Belezas|5": "elevada",
+    "Giovanni Gronchi|5": "elevada",
+    "Santo Amaro|5": "elevada",
+    "Largo Treze|5": "elevada"
+  },
+  "transfers": [
+    { "between": ["Luz|1", "Luz|4"], "walkS": 240, "bikeS": 420 },
+    { "between": ["Luz|1", "Luz|10"], "walkS": 240, "bikeS": 360 },
+    { "between": ["Luz|4", "Luz|10"], "walkS": 300, "bikeS": 420 },
+    { "between": ["República|3", "República|4"], "walkS": 240, "bikeS": 420 },
+    { "between": ["Paulista|4", "Consolação|2"], "walkS": 300, "bikeS": 480 },
+    { "between": ["Sé|1", "Sé|3"], "walkS": 180, "bikeS": 360 },
+    { "between": ["Paraíso|1", "Paraíso|2"], "walkS": 90, "bikeS": 180 },
+    { "between": ["Ana Rosa|1", "Ana Rosa|2"], "walkS": 90, "bikeS": 180 },
+    { "between": ["Santa Cruz|1", "Santa Cruz|5"], "walkS": 180, "bikeS": 300 },
+    { "between": ["Chácara Klabin|2", "Chácara Klabin|5"], "walkS": 180, "bikeS": 300 },
+    { "between": ["Pinheiros Metrô|4", "Pinheiros|9"], "walkS": 240, "bikeS": 360 },
+    { "between": ["Santo Amaro|5", "Santo Amaro|9"], "walkS": 300, "bikeS": 420 },
+    { "between": ["Tatuapé|3", "Tatuapé|11"], "walkS": 180, "bikeS": 300 },
+    { "between": ["Brás|3", "Brás|11"], "walkS": 240, "bikeS": 360 },
+    { "between": ["Brás|3", "Brás|10"], "walkS": 240, "bikeS": 360 },
+    { "between": ["Brás|10", "Brás|11"], "walkS": 120, "bikeS": 180 },
+    { "between": ["Palmeiras - Barra Funda|3", "Palmeiras - Barra Funda|7"], "walkS": 180, "bikeS": 300 },
+    { "between": ["Corinthians-itaquera|3", "Corinthians-itaquera|11"], "walkS": 180, "bikeS": 300 },
+    { "between": ["Tamanduateí|2", "Tamanduateí|10"], "walkS": 180, "bikeS": 300 },
+    { "between": ["Vila Prudente|2", "Vila Prudente (monotrilho)|15"], "walkS": 240, "bikeS": 360 },
+    { "between": ["Morumbi|9", "Morumbi|17"], "walkS": 180, "bikeS": 300 },
+    { "between": ["Eng. Goulart|12", "Eng. Goulart|13"], "walkS": 120, "bikeS": 180 },
+    { "between": ["Osasco|8", "Osasco|9"], "walkS": 120, "bikeS": 180 },
+    { "between": ["Presidente Altino|8", "Presidente Altino|9"], "walkS": 120, "bikeS": 180 },
+    { "between": ["Água Branca|6", "Água Branca|7"], "walkS": 240, "bikeS": 360 },
+    { "between": ["Calmon Viana|11", "Calmon Viana|12"], "walkS": 120, "bikeS": 180 }
+  ]
+}

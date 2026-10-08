@@ -72,3 +72,27 @@ test('the bike and walking models slow down uphill', () => {
   assert.ok(Math.abs(walkSpeed(0) * 3.6 - 4.5) < 0.01);
   assert.ok(walkSpeed(0.15) < walkSpeed(0));
 });
+
+// From A to B: straight along a primary road (~184 m), or round three residential
+// sides (~582 m).
+function arterialSquare(primaryTags) {
+  const d = 0.0018;
+  const coords = new Map([[1, [-23.55, -46.65]], [2, [-23.55, -46.65 + d]], [3, [-23.55 + d, -46.65 + d]], [4, [-23.55 + d, -46.65]]]);
+  const ways = new Map([
+    [10, { nodes: [1, 2], tags: { highway: 'primary', ...primaryTags } }],
+    [11, { nodes: [2, 3, 4, 1], tags: { highway: 'residential' } }],
+  ]);
+  return decodeStreets(buildStreets(ways, coords, () => 760).buffer);
+}
+
+test('avoiding arterials takes the side streets unless the avenue has a bike lane', () => {
+  const route = (g, avoidArterials) => {
+    const a = snap(g, -23.55, -46.65, 'bike').node, b = snap(g, -23.55, -46.6482, 'bike').node;
+    const s = streetSearch(g, { sources: [{ node: a, t: 0, e: 0 }], mode: 'bike', bike: bikeModel(80, { avoidArterials }), target: b });
+    return pathNodes(s, b).length;
+  };
+  const plain = arterialSquare({});
+  assert.ok(route(plain, true) > route(plain, false), 'goes round when avoiding');
+  const lane = arterialSquare({ 'cycleway:right': 'lane' });
+  assert.equal(route(lane, true), route(lane, false), 'a bike lane makes the avenue fine');
+});

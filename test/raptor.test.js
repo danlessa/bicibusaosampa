@@ -3,7 +3,9 @@ import assert from 'node:assert/strict';
 
 import { buildTransit, expandFrequencies, railRef } from '../scripts/routing.mjs';
 import { liveTrips } from '../public/js/live-trips.js';
-import { flatSpeed, INF, loadNetwork, plan, queryDay } from '../public/js/raptor.js';
+import { readFileSync } from 'node:fs';
+
+import { balance, flatSpeed, INF, loadNetwork, plan, queryDay, stationTable } from '../public/js/raptor.js';
 
 // São Paulo is UTC-3 all year. 2026-10-07 is a Wednesday.
 const sp = (iso) => new Date(`${iso}-03:00`);
@@ -132,4 +134,82 @@ test('buildTransit keeps each template trip as offsets plus departures', () => {
   assert.equal(p.rail, '7');
   assert.deepEqual(p.offsets, [0, 420]);
   assert.deepEqual(p.departures, [14_400, 15_300, 16_200]);
+});
+
+// Line 1 runs east along stops 0–5; line 2 starts 150 m north of stop 5 and goes on east.
+const NORTH = -23.55 + 150 / 110_574;
+function twoLines(stations = null) {
+  const stops = [...LON.slice(0, 6).map((lon) => [-23.55, lon]), ...LON.slice(5).map((lon) => [NORTH, lon])];
+  const line = (route, rail, idx) => ({
+    route, mode: 'metro', rail, dir: 0, headsign: 'Leste', service: 'ALL',
+    stops: idx, offsets: idx.map((_, i) => i * 120),
+    departures: Array.from({ length: 200 }, (_, k) => 5 * 3600 + k * 300),
+  });
+  return loadNetwork({
+    transit: {
+      services: { ALL: [1, 1, 1, 1, 1, 1, 1] },
+      stops: { id: stops.map((_, i) => `s${i}`), name: stops.map((_, i) => `Estação ${i}`), lat: stops.map((p) => p[0]), lon: stops.map((p) => p[1]) },
+      patterns: [line('METRÔ L1', '1', [0, 1, 2, 3, 4, 5]), line('METRÔ L2', '2', [6, 7, 8, 9, 10, 11])],
+    },
+    railLines: { bikeRules: { bikes: BIKE_HOURS }, lines: [{ ref: '1', service: [ALL_DAY] }, { ref: '2', service: [ALL_DAY] }] },
+    bikeBuses: { rules: { bikes: BIKE_HOURS }, lines: [] },
+    parking: { features: [] },
+    stations,
+  });
+}
+const DEEP = {
+  types: { profunda: { walkS: 150, bikeS: 300, upIn: 0, upOut: 25 } },
+  lines: { 1: 'profunda', 2: 'profunda' },
+  transfers: [{ between: ['Estação 5|1', 'Estação 6|2'], walkS: 240, bikeS: 420 }],
+};
+
+test('changing lines with the bike walks it between the stations', () => {
+  const j = plan(twoLines(), { from: ORIGIN, to: { lat: NORTH, lon: LON[10] }, date: NOON, profile: 'carry' })[0];
+  assert.deepEqual(j.legs.map((l) => l.kind), ['bike', 'ride', 'walk', 'ride', 'bike']);
+  const change = j.legs[2];
+  assert.equal(change.withBike, true);
+  // 150 m × 1.3 at pushing pace (85% of 4.5 km/h), not at cycling speed.
+  assert.ok(Math.abs(change.arrive - change.depart - (150 * 1.3) / (1.25 * 0.85)) < 5, `${change.arrive - change.depart} s`);
+});
+
+test('stations add the way in, the way out and the timed interchange', () => {
+  const j = plan(twoLines(DEEP), { from: ORIGIN, to: { lat: NORTH, lon: LON[10] }, date: NOON, profile: 'carry' })
+    .find((x) => x.rides === 2);
+  assert.deepEqual(j.legs.map((l) => l.kind), ['bike', 'station', 'ride', 'walk', 'ride', 'station', 'bike']);
+  const [inn, change, out] = [j.legs[1], j.legs[3], j.legs[5]];
+  assert.equal(inn.arrive - inn.depart, 300);
+  assert.equal(inn.down, 25);
+  assert.equal(out.up, 25);
+  assert.ok(out.kcal > inn.kcal, 'climbing out with the bike costs more');
+  assert.equal(change.interchange, true);
+  assert.equal(change.arrive - change.depart, 420);
+});
+
+test('stationTable reports keys that match no stop', () => {
+  const table = stationTable({ ...DEEP, stations: { 'Nowhere|1': 'profunda' } }, twoLines().patterns, LON.concat(LON).map((_, i) => `Estação ${i}`), 12);
+  assert.deepEqual(table.missing, ['Nowhere|1']);
+  assert.equal(table.transfers.get(5)[0].to, 6);
+});
+
+test('every station and interchange in stations.json matches a GTFS stop', () => {
+  const read = (f) => JSON.parse(readFileSync(new URL(`../public/data/${f}`, import.meta.url), 'utf8'));
+  const transit = read('routing/transit.json');
+  const patterns = transit.patterns.map((p) => ({ ...p, stops: Int32Array.from(p.stops) }));
+  const table = stationTable(read('stations.json'), patterns, transit.stops.name, transit.stops.id.length);
+  assert.deepEqual(table.missing, []);
+});
+
+test('balance ranks by kcal plus k × minutes, without repeats', () => {
+  const j = (min, kcal, route) => ({ depart: 0, arrive: min * 60, energy: kcal * 4184, kcal, legs: [{ kind: 'ride', route, to: { stop: route } }] });
+  // k = 1: A 56 + 152 = 208; B 86 + 56 = 142; C 74 + 68 = 142 (earlier arrival first); D 67 + 62 = 129
+  const all = [j(56, 152, 'A'), j(86, 56, 'B'), j(74, 68, 'C'), j(67, 62, 'D'), j(56, 152, 'A')];
+  assert.deepEqual(balance(all, 1).map((x) => x.legs[0].route), ['D', 'C', 'B', 'A']);
+  // k = 3, the default: D 263, C 290, B 314, A 320
+  assert.deepEqual(balance(all).map((x) => x.legs[0].route), ['D', 'C', 'B', 'A']);
+  // k = 10 (time counts most): A 712, D 732, C 808, B 916
+  assert.deepEqual(balance(all, 10).map((x) => x.legs[0].route), ['A', 'D', 'C', 'B']);
+  // A fast enough option wins at k = 10 but not at k = 1.
+  const pair = [j(40, 120, 'fast'), j(80, 70, 'easy')];
+  assert.equal(balance(pair, 10)[0].legs[0].route, 'fast');
+  assert.equal(balance(pair, 1)[0].legs[0].route, 'easy');
 });
