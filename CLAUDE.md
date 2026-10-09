@@ -78,9 +78,9 @@ append `window.__map = map;`.
       sits on the straightest stretch of the leg's on-screen part (outside the sheet),
       shrinks to fit it (down to 7 px, then fades), and glides to its new spot when
       the view changes.
-    - The mode selector (three squares under the section title) maps to profiles:
-      "Intermodal + Bicicleta + Estacionar" = `bike`, "Intermodal + Bicicleta" =
-      `carry`, "Intermodal" = `walk`. The worker downloads the network on the first point or
+    - The mode selector (three emoji buttons under the section title, text in
+      aria-label/title) maps to profiles: 🚌 + 🚲 + 🅿️ (intermodal, bike, park) =
+      `bike`, 🚌 + 🚲 = `carry`, 🚌 (intermodal on foot) = `walk`. The worker downloads the network on the first point or
       search, not on page load.
   - `data/routing/transit.json`: **generated** (`npm run build:data -- routing`) from the
     GTFS: stops and per line-direction patterns (stop offsets + departures).

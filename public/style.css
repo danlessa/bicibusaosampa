@@ -427,7 +427,7 @@ footer a { color: var(--accent); }
   cursor: pointer;
 }
 .plan-profiles { margin-top: 2px; }
-.plan-profiles span { min-height: 0; padding: 6px 4px; font-size: 13px; line-height: 1.25; }
+.plan-profiles span { min-height: var(--touch); padding: 8px 4px; align-content: start; font-size: 18px; line-height: 1.25; white-space: nowrap; }
 .plan-modes input:checked + span { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); font-weight: 600; }
 .plan-modes input:focus-visible + span { outline: 2px solid var(--accent); }
 .plan-optimize { margin-top: 0; }
