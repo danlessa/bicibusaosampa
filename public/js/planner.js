@@ -422,7 +422,7 @@ export function initPlanner({ map, locate, sheetInsets, railLines, getBuses, foc
       }];
     }
     selected = 0;
-    const live = later ? '' : reply.live ? ' · ônibus ao vivo' : '';
+    const live = later || profile() === 'cycle' ? '' : reply.live ? ' · ônibus ao vivo' : '';
     status.textContent = points.length > 2
       ? `Com ${points.length - 2} ${points.length === 3 ? 'parada' : 'paradas'}${live}`
       : `${journeys.length} ${journeys.length === 1 ? 'opção' : 'opções'}${live}`;

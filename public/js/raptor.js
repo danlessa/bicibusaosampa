@@ -351,10 +351,12 @@ function provider(net, day, live, pi, layer) {
 // ------------------------------------------------------------------ search
 
 export const PROFILES = {
-  // Access layer, egress layers, and whether the bike may be left at a bicicletário.
+  // Access layer, egress layers, whether the bike may be left at a bicicletário, and
+  // whether to skip transit altogether.
   walk: { access: 0, egress: [0], park: false },
   bike: { access: 1, egress: [0, 1], park: true },
   carry: { access: 1, egress: [1], park: false },  // never leaves the bike
+  cycle: { access: 1, egress: [1], park: false, direct: true }, // the whole way by bike
 };
 
 const MODE = ['walk', 'bike'];
@@ -555,6 +557,7 @@ function search(net, { from, to, date = new Date(), profile = 'bike', power = PO
     }
     addTarget({ kind: DIRECT, layer, t: day.now + direct.t, e: direct.e, path: direct.path });
   }
+  if (prof.direct) return target.map(rebuild);
 
   const egress = new Map();
   prof.egress.forEach((layer) => { for (const [node, leg] of lastLegs(layer, layer ? 3 : 1)) egress.set(node, leg); });

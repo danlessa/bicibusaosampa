@@ -213,3 +213,12 @@ test('balance ranks by kcal plus k × minutes, without repeats', () => {
   assert.equal(balance(pair, 10)[0].legs[0].route, 'fast');
   assert.equal(balance(pair, 1)[0].legs[0].route, 'easy');
 });
+
+test('"only bicycle" rides the whole way, even when the train would be faster', () => {
+  const net = network([{ route: 'METRÔ L1', mode: 'metro', rail: '1', perStop: 120 }]);
+  const withTrain = plan(net, { from: ORIGIN, to: DEST, date: NOON, profile: 'carry' })[0];
+  assert.ok(rides(withTrain).length > 0);
+  const journeys = plan(net, { from: ORIGIN, to: DEST, date: NOON, profile: 'cycle' });
+  assert.equal(journeys.length, 1);
+  assert.deepEqual(journeys[0].legs.map((l) => l.kind), ['bike']);
+});

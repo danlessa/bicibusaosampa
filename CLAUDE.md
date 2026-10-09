@@ -80,7 +80,8 @@ append `window.__map = map;`.
       the view changes.
     - The mode selector (three emoji buttons under the section title, text in
       aria-label/title) maps to profiles: 🚌 + 🚲 + 🅿️ (intermodal, bike, park) =
-      `bike`, 🚌 + 🚲 = `carry`, 🚌 (intermodal on foot) = `walk`. The worker downloads the network on the first point or
+      `bike`, 🚌 + 🚲 = `carry`, 🚌 (intermodal on foot) = `walk`, 🚲 (only the bike, no
+      transit: the planner's direct leg) = `cycle`. The worker downloads the network on the first point or
       search, not on page load.
   - `data/routing/transit.json`: **generated** (`npm run build:data -- routing`) from the
     GTFS: stops and per line-direction patterns (stop offsets + departures).
