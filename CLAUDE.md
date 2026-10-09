@@ -45,6 +45,18 @@ append `window.__map = map;`.
     Don't put the worker code in a Function module: the bundler injects `__name()`
     helpers that break it in the browser.
   - `manifest.webmanifest`, `icons/icon*.png|svg`: PWA install.
+  - `vendor/leaflet-rotate/`: leaflet-rotate 0.2.8 (GPL-3.0) as patched by Câmera
+    Topográfica (steadier touch rotation and pinch anchor). Map rotation: two fingers
+    on phones, Shift + wheel with a mouse; a compass button resets north.
+    - **Vector layers must live in the rotating pane** (`rotatingPane(name)` in app.js,
+      `map.getPane('rotatePane')`), or lines stay put while tiles turn. Marker panes stay
+      in the map pane (they're positioned with rotation, but drawn upright) and stack
+      above the whole rotating pane.
+    - Anything drawn with an on-screen direction needs `map.getBearing()`: bus arrows
+      (heading − bearing), route trail icons (+ bearing), route labels.
+    - On phones tile layers only refresh on moveend, so app.js calls `_update()` on
+      them after a rotation.
+    - The map corner attribution is off; credits are in the menu footer.
   - Pure modules, imported by the tests too:
     - `time.js`: São Paulo time and holidays.
     - `schedule.js`: time-window engine.
@@ -75,8 +87,9 @@ append `window.__map = map;`.
       parking (`#map.route-shown`) and every bus/rail line it doesn't ride
       (`focusLines()` in app.js). Each leg is labelled with SVG text along the line
       itself (textPath on an invisible, west→east, screen-smoothed copy of the leg,
-      shifted sideways as a parallel curve; own pane `planLabels` at z 660, above
-      everything on the map except popups); a black "Total" label runs over the whole trip:
+      shifted sideways as a parallel curve; own non-rotating pane `planLabels` at z
+      660 with its own SVG, guides redrawn in screen coordinates on moveend/rotate so
+      text reads left to right at any bearing; A/B/stop pins at 655, just below); a black "Total" label runs over the whole trip:
       time · kcal · distance above, the bus/rail line below; white letters outlined
       in the leg's colour. Each label
       sits on the straightest stretch of the leg's on-screen part (outside the sheet),

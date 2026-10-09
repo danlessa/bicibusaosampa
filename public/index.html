@@ -41,6 +41,9 @@
     <button type="button" id="layers-toggle" class="map-btn" aria-controls="layers-panel" aria-pressed="false" aria-label="Camadas e legenda" title="Camadas e legenda">
       <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M12 3 2 8.5 12 14l10-5.5L12 3Z" fill="currentColor"/><path d="m2 13 10 5.5L22 13M2 17.5 12 23l10-5.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
     </button>
+    <button type="button" id="compass-btn" class="map-btn" aria-label="Apontar o norte para cima" title="Norte para cima" hidden>
+      <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="M12 2.5 16 12h-8z" fill="#dc2626"/><path d="M12 21.5 8 12h8z" fill="currentColor" opacity=".55"/></svg>
+    </button>
     <button type="button" id="locate-btn" class="map-btn" aria-pressed="false" aria-label="Minha localização" title="Minha localização">
       <svg viewBox="0 0 512 512" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M445 4 29 195c-48 23-32 93 19 93h176v176c0 51 70 67 93 19L508 67c16-38-25-79-63-63z"/></svg>
     </button>
@@ -120,7 +123,7 @@
       </section>
 
       <footer>
-        <p><a href="https://github.com/danlessa/bicibusaosampa">Código</a> · SPTrans · © OpenStreetMap · GeoSampa · Photon</p>
+        <p><a href="https://github.com/danlessa/bicibusaosampa">Código</a> · SPTrans · <a href="https://www.openstreetmap.org/copyright">© OpenStreetMap</a> · Topografia: <a href="https://amora.pedalhidrografi.co/">Pedal Hidrográfico</a> · GeoSampa · Photon · Leaflet</p>
       </footer>
     </div>
   </aside>
@@ -163,6 +166,8 @@
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+  <!-- leaflet-rotate 0.2.8 (GPL-3.0) with Câmera Topográfica's touch-gesture patches. -->
+  <script src="vendor/leaflet-rotate/leaflet-rotate.js"></script>
   <script type="module" src="js/app.js"></script>
 </body>
 </html>

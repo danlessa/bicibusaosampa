@@ -25,6 +25,7 @@ const SHELL = [
   '/js/app.js', '/js/geocode.js', '/js/heading.js', '/js/live-trips.js', '/js/locate.js',
   '/js/offset.js', '/js/parking.js', '/js/planner.js', '/js/planner-worker.js', '/js/raptor.js',
   '/js/rail.js', '/js/schedule.js', '/js/streets.js', '/js/time.js', '/js/ui.js',
+  '/vendor/leaflet-rotate/leaflet-rotate.js',
   '/data/rail-lines.json', '/data/bike-buses.json', '/data/rail.geojson', '/data/bus-routes.geojson',
 ];
 const CDN = [

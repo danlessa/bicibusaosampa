@@ -40,7 +40,31 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(
 
 // ---------------------------------------------------------------- map
 
-const map = L.map('map', { zoomControl: false, preferCanvas: true }).setView(DEFAULT_VIEW.center, DEFAULT_VIEW.zoom);
+// Rotation (leaflet-rotate): two fingers turning on phones, Shift + wheel with a mouse.
+// Lines and tiles turn with the map (they live in its rotatePane); markers stay upright.
+// The OSM / data credits live in the menu footer instead of the map corner.
+const map = L.map('map', {
+  zoomControl: false, preferCanvas: true, attributionControl: false,
+  rotate: true, touchRotate: true, rotateControl: false, bearing: 0,
+}).setView(DEFAULT_VIEW.center, DEFAULT_VIEW.zoom);
+/** A pane whose content turns with the map: every vector layer (lines) goes in one. */
+const rotatingPane = (name) => map.createPane(name, map.getPane('rotatePane'));
+
+// The compass shows while the map is turned; tapping it puts north up again.
+const compass = $('#compass-btn');
+map.on('rotate', () => {
+  const b = map.getBearing();
+  compass.hidden = Math.abs(((b + 180) % 360) - 180) < 0.5;
+  compass.querySelector('svg').style.transform = `rotate(${b}deg)`;
+});
+compass.addEventListener('click', () => map.setBearing(0));
+// On phones tile layers only load new tiles when a move ends ("updateWhenIdle"), and a
+// rotation isn't a move: refresh them once the map stops turning, or corners stay blank.
+let tileTimer = null;
+map.on('rotate', () => {
+  clearTimeout(tileTimer);
+  tileTimer = setTimeout(() => map.eachLayer((l) => { if (l instanceof L.TileLayer) l._update(); }), 150);
+});
 L.control.zoom({ position: 'topleft', zoomInTitle: 'Aproximar', zoomOutTitle: 'Afastar' }).addTo(map);
 
 // Base maps. OSM is desaturated in style.css so the line colours stand out; the
@@ -74,10 +98,10 @@ Object.keys(BASE_MAPS).forEach((key, i) => {
   if (baseState[key].on) BASE_MAPS[key].addTo(map);
 });
 
-map.createPane('tracks').style.zIndex = 405;
+rotatingPane('tracks').style.zIndex = 405;
 // Wider click tolerance so the thin rails are easy to tap.
 const trackRenderer = L.canvas({ pane: 'tracks', tolerance: 6 });
-map.createPane('busRoutes').style.zIndex = 410;
+rotatingPane('busRoutes').style.zIndex = 410;
 const busRouteRenderer = L.canvas({ pane: 'busRoutes', tolerance: 4 });
 map.createPane('busStops').style.zIndex = 415;
 map.createPane('parking').style.zIndex = 418;
@@ -587,7 +611,11 @@ function renderBusMarkers(s) {
     if (marker.options.icon !== icon) marker.setIcon(icon);
     marker.setOpacity(busOpacity(bus.line));
     const svg = marker.getElement()?.querySelector('.bus-icon');
-    if (svg) svg.style.transform = iconTransform(busHeading(bus));
+    if (svg) {
+      const heading = busHeading(bus);
+      svg.dataset.heading = heading ?? '';
+      svg.style.transform = iconTransform(heading == null ? null : heading - map.getBearing());
+    }
   }
   for (const [prefix, marker] of busMarkers) {
     if (!seen.has(prefix)) {
@@ -723,8 +751,18 @@ function focusLines(used) {
   for (const bus of state.buses) busMarkers.get(bus.prefix)?.setOpacity(busOpacity(bus.line));
 }
 
+// Bus arrows point the way the bus goes on screen, so they turn when the map does.
+map.on('rotate', () => {
+  const bearing = map.getBearing();
+  for (const marker of busMarkers.values()) {
+    const svg = marker.getElement()?.querySelector('.bus-icon');
+    if (svg?.dataset.heading) svg.style.transform = iconTransform(Number(svg.dataset.heading) - bearing);
+  }
+});
+
 initPlanner({
   map,
+  rotatingPane,
   focusLines,
   locate,
   sheetInsets,

@@ -67,6 +67,7 @@ button { font: inherit; -webkit-tap-highlight-color: transparent; }
 #map.route-shown .leaflet-parking-pane,
 #map.route-shown .leaflet-stations-pane { opacity: 0.25; }
 
+.plan-label-layer { position: absolute; left: 0; top: 0; width: 1px; height: 1px; overflow: visible; pointer-events: none; }
 /* Labels along each leg of a planned trip, following the line (SVG textPath): white
    letters outlined in the leg's colour (set inline), like the icons along the route. */
 .plan-leg-label {
@@ -112,6 +113,8 @@ button { font: inherit; -webkit-tap-highlight-color: transparent; }
 }
 .map-btn:active { transform: translateY(1px); }
 .map-btn[aria-pressed="true"] { background: var(--accent); color: var(--accent-fg); border-color: transparent; }
+#compass-btn[hidden] { display: none; }
+#compass-btn svg { transition: transform 0.1s linear; }
 #locate-btn.busy svg { animation: pulse 1s ease-in-out infinite alternate; }
 @keyframes pulse { to { opacity: 0.35; } }
 @media (prefers-reduced-motion: reduce) { #locate-btn.busy svg { animation: none; } }

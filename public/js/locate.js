@@ -11,7 +11,8 @@ const ZOOM = 16;
 
 export function initLocate(map) {
   const button = document.getElementById('locate-btn');
-  map.createPane('me').style.zIndex = 630;
+  // The accuracy ring and dot are vector layers: they belong in the rotating pane.
+  map.createPane('me', map.getPane('rotatePane') ?? undefined).style.zIndex = 630;
   let watching = false;
   let centred = false;
   let last = null; // L.LatLng of the latest fix
