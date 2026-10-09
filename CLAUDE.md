@@ -72,13 +72,16 @@ append `window.__map = map;`.
       one after another (best option each). A shown route fades stops, stations and
       parking (`#map.route-shown`) and every bus/rail line it doesn't ride
       (`focusLines()` in app.js). Each leg is labelled with SVG text along the line
-      itself (textPath on an invisible, west→east, screen-smoothed copy of the leg):
+      itself (textPath on an invisible, west→east, screen-smoothed copy of the leg,
+      shifted sideways as a parallel curve; own pane `planLabels`, above the route
+      and its icons); a black "Total" label runs over the whole trip:
       time · kcal · distance above, the bus/rail line below; white letters outlined
       in the leg's colour. Each label
       sits on the straightest stretch of the leg's on-screen part (outside the sheet),
       shrinks to fit it (down to 7 px, then fades), and glides to its new spot when
       the view changes. With 2+ rides of a kind, their trail icons carry a 1, 2, …
-      badge; a dark ⇄ marker sits at each change of mode. Route lines don't bubble
+      badge; a dark ⇄ marker sits at each change of mode. Trail icons shrink when
+      zoomed out (full size from zoom 15, half at 11). Route lines don't bubble
       clicks, so tapping them never adds a trip point.
     - The mode selector (three emoji buttons under the section title, text in
       aria-label/title) maps to profiles: 🚌 + 🚲 + 🅿️ (intermodal, bike, park) =

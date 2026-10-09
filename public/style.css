@@ -82,6 +82,7 @@ button { font: inherit; -webkit-tap-highlight-color: transparent; }
   transition: opacity 0.25s;
 }
 .plan-leg-label.line { font-weight: 800; font-size: 13.5px; }
+.plan-leg-label.total { font-weight: 800; font-size: 14px; }
 
 /* ------------------------------------------------------------ map buttons */
 

@@ -57,8 +57,13 @@ export function initPlanner({ map, locate, sheetInsets, railLines, getBuses, foc
   const iconPane = map.createPane('planIcons');
   iconPane.style.zIndex = 642;
   iconPane.style.pointerEvents = 'none';
+  // Labels along the route sit above the route and its icons, below the A/B pins.
+  const labelPane = map.createPane('planLabels');
+  labelPane.style.zIndex = 643;
+  labelPane.style.pointerEvents = 'none';
   map.createPane('planPins').style.zIndex = 645;
   const renderer = L.svg({ pane: 'plan' });
+  const labelRenderer = L.svg({ pane: 'planLabels' });
   const routeLayer = L.layerGroup().addTo(map);
   const iconLayer = L.layerGroup().addTo(map);
   let iconLegs = []; // { path, glyph, color } of the selected journey
@@ -231,6 +236,7 @@ export function initPlanner({ map, locate, sheetInsets, railLines, getBuses, foc
     iconLegs = [];
     iconLayer.clearLayers();
     labelLegs = [];
+    tripLabel = null;
     clearLabels();
     focusLines(null);
     results.innerHTML = '';
@@ -522,6 +528,7 @@ export function initPlanner({ map, locate, sheetInsets, railLines, getBuses, foc
     // the bus and rail lines the trip rides on.
     map.getContainer().classList.toggle('route-shown', !!j);
     labelLegs = [];
+    tripLabel = null;
     focusLines(j ? {
       buses: new Set(j.legs.filter((l) => l.kind === 'ride' && l.mode === 'bus').map((l) => l.route)),
       rails: new Set(j.legs.filter((l) => l.kind === 'ride' && l.mode !== 'bus').map((l) => String(l.rail))),
@@ -576,8 +583,15 @@ export function initPlanner({ map, locate, sheetInsets, railLines, getBuses, foc
         info: `${minutes(leg.arrive - leg.depart)} · ${kcal(leg.kcal)} · ${km(meters)}`,
         line: leg.kind === 'ride' ? String(leg.mode === 'bus' ? leg.route : `Linha ${leg.rail}`) : null,
         color,
+        meters,
       });
     }
+    // The whole trip, for the label over it: every drawn leg end to end.
+    const tripPath = [], tripMeters = labelLegs.reduce((m, l) => m + l.meters, 0);
+    for (const leg of j.legs) if (leg.kind !== 'station' && leg.kind !== 'park') tripPath.push(...(leg.path ?? [[leg.from.lat, leg.from.lon], [leg.to.lat, leg.to.lon]]));
+    tripLabel = tripPath.length > 1 && labelLegs.length > 1
+      ? { path: tripPath, info: `Total: ${minutes(j.arrive - j.depart)} · ${kcal(j.kcal)} · ${km(tripMeters)}` }
+      : null;
     if (!bounds.isValid()) return;
     for (const p of stops) if (p) bounds.extend([p.lat, p.lon]);
     // Keep the route clear of the menu sheet and the map buttons.
@@ -593,8 +607,11 @@ export function initPlanner({ map, locate, sheetInsets, railLines, getBuses, foc
 
   // ---------------------------------------------------------------- icon trail
 
-  const ICON_GAP = 26;  // px between icons along the route
+  // Icon size and spacing along the route (px) at full size, from zoom 15; they shrink
+  // when zoomed out, down to about half at zoom 11.
+  const ICON_GAP = 26;
   const ICON_SIZE = 18;
+  const iconScale = () => Math.min(1, Math.max(0.5, (map.getZoom() - 9.5) / 5.5));
   // White glyphs on a disc in the leg colour (24×24 view box, drawn facing east/up).
   const GLYPHS = {
     bike: '<circle cx="6" cy="15" r="4"/><circle cx="18" cy="15" r="4"/><path d="M6 15l4-7h6l2 7M10 8l3 7M8 5h4M15 6h3"/>',
@@ -612,14 +629,14 @@ export function initPlanner({ map, locate, sheetInsets, railLines, getBuses, foc
     iconAnchor: [12, 12],
   });
 
-  function trailIcon(glyph, color, angle, n) {
+  function trailIcon(glyph, color, angle, n, size) {
     // Rails turn with the track; the bike faces where it's going; the wheel doesn't care.
     const turn = glyph === 'rail' ? `rotate(${angle + 90}deg)` : glyph === 'bike' && Math.cos((angle * Math.PI) / 180) < 0 ? 'scaleX(-1)' : '';
     return L.divIcon({
       className: 'plan-trail',
-      html: `<span style="background:${color}"><svg viewBox="0 0 24 24" style="transform:${turn}">${GLYPHS[glyph]}</svg>${n ? `<sub style="background:${color}">${n}</sub>` : ''}</span>`,
-      iconSize: [ICON_SIZE, ICON_SIZE],
-      iconAnchor: [ICON_SIZE / 2, ICON_SIZE / 2],
+      html: `<span style="background:${color};width:${size}px;height:${size}px"><svg viewBox="0 0 24 24" style="transform:${turn};width:${Math.round(size * 0.72)}px;height:${Math.round(size * 0.72)}px">${GLYPHS[glyph]}</svg>${n ? `<sub style="background:${color}">${n}</sub>` : ''}</span>`,
+      iconSize: [size, size],
+      iconAnchor: [size / 2, size / 2],
     });
   }
 
@@ -628,9 +645,10 @@ export function initPlanner({ map, locate, sheetInsets, railLines, getBuses, foc
     iconLayer.clearLayers();
     if (!iconLegs.length) return;
     const view = map.getPixelBounds().pad(0.1);
+    const scale = iconScale(), size = Math.round(ICON_SIZE * scale), gap = ICON_GAP * scale;
     for (const { path, glyph, color, n } of iconLegs) {
       const pts = path.map((p) => map.project(p));
-      let next = ICON_GAP / 2;
+      let next = gap / 2;
       let walked = 0;
       for (let i = 1; i < pts.length; i++) {
         const a = pts[i - 1], b = pts[i];
@@ -641,9 +659,9 @@ export function initPlanner({ map, locate, sheetInsets, railLines, getBuses, foc
           const f = (next - walked) / len;
           const p = L.point(a.x + (b.x - a.x) * f, a.y + (b.y - a.y) * f);
           if (view.contains(p)) {
-            L.marker(map.unproject(p), { pane: 'planIcons', icon: trailIcon(glyph, color, angle, n), interactive: false, keyboard: false }).addTo(iconLayer);
+            L.marker(map.unproject(p), { pane: 'planIcons', icon: trailIcon(glyph, color, angle, n, size), interactive: false, keyboard: false }).addTo(iconLayer);
           }
-          next += ICON_GAP;
+          next += gap;
         }
         walked += len;
       }
@@ -659,6 +677,7 @@ export function initPlanner({ map, locate, sheetInsets, railLines, getBuses, foc
   // down. A label longer than its leg on screen gets a smaller font (fitLabels()).
   const SVG_NS = 'http://www.w3.org/2000/svg';
   let labelLegs = []; // { path, info, line, color } of the selected journey
+  let tripLabel = null; // { path, info }: the whole selected journey
   let labelTexts = []; // [{ guide: SVGPathElement, texts: [SVGTextElement] }]
 
   function pathLength(path) {
@@ -675,7 +694,7 @@ export function initPlanner({ map, locate, sheetInsets, railLines, getBuses, foc
   function textOn(guide, content, dy, className, outline) {
     const text = document.createElementNS(SVG_NS, 'text');
     text.setAttribute('class', className);
-    text.setAttribute('dy', String(dy));
+    text.setAttribute('dy', dy);
     text.style.stroke = outline; // white letters outlined in the leg's colour
     const tp = document.createElementNS(SVG_NS, 'textPath');
     tp.setAttribute('href', `#${guide.id}`);
@@ -687,9 +706,11 @@ export function initPlanner({ map, locate, sheetInsets, railLines, getBuses, foc
     return text;
   }
 
-  // The guide is simplified on screen with a tolerance of 15% of the leg's size there
-  // (zigzags through the street grid become one gentle curve, at any zoom) and then
-  // rounded with four Chaikin passes, so the text bends instead of folding at corners.
+  // Each label runs on its own guide: the route simplified on screen (a little more
+  // than a letter's height, so street-grid zigzags don't fold the text), rounded with
+  // three Chaikin passes, and then moved sideways by `shift` px as a parallel curve
+  // (positive = above, the guides run west→east). Text sits centred on that curve,
+  // which keeps letters evenly spaced on bends, unlike an offset from the line itself.
   const chaikin = (pts) => {
     if (pts.length < 3) return pts;
     const out = [pts[0]];
@@ -700,35 +721,52 @@ export function initPlanner({ map, locate, sheetInsets, railLines, getBuses, foc
     out.push(pts[pts.length - 1]);
     return out;
   };
+  function parallel(pts, shift) {
+    if (!shift || pts.length < 2) return pts;
+    return pts.map((p, i) => {
+      const a = pts[Math.max(0, i - 1)], b = pts[Math.min(pts.length - 1, i + 1)];
+      const dx = b.x - a.x, dy = b.y - a.y, len = Math.hypot(dx, dy) || 1;
+      return L.point(p.x + (dy / len) * shift, p.y - (dx / len) * shift);
+    });
+  }
   const SmoothGuide = L.Polyline.extend({
     _update() {
       if (!this._map) return;
       this._clipPoints();
-      const size = this._pxBounds?.getSize();
-      this.options.smoothFactor = size ? Math.max(8, Math.hypot(size.x, size.y) * 0.15) : 8;
+      this.options.smoothFactor = 10;
       this._simplifyPoints();
-      this._parts = this._parts.map((part) => chaikin(chaikin(chaikin(chaikin(part)))));
+      this._parts = this._parts.map((part) => parallel(chaikin(chaikin(chaikin(part))), this.options.shift));
       this._updatePath();
     },
   });
 
   let guideId = 0;
+  // Distances of each label's centre line from the route, in px (positive = above).
+  const SHIFT = { info: 15, line: -18, total: 34 };
+
   function placeLabels() {
     clearLabels();
-    for (const { path, info, line, color } of labelLegs) {
+    const guideFor = (path, shift) => {
       const westToEast = path[path.length - 1][1] >= path[0][1] ? path : [...path].reverse();
-      const guide = new SmoothGuide(westToEast, { renderer, opacity: 0, weight: 1, interactive: false, noClip: true }).addTo(routeLayer);
-      const el = guide.getElement();
-      if (!el) continue;
-      el.id = `plan-guide-${++guideId}`;
-      // Above the line, clear of the icon trail; the line's name below it. Their size
-      // is set by fitLabels().
-      const texts = [textOn(el, info, -17, 'plan-leg-label', color)];
-      if (line) texts.push(textOn(el, line, 28, 'plan-leg-label line', color));
-      labelTexts.push({ guide: el, texts });
+      const el = new SmoothGuide(westToEast, { renderer: labelRenderer, opacity: 0, weight: 1, interactive: false, noClip: true, shift }).addTo(routeLayer).getElement();
+      if (el) el.id = `plan-guide-${++guideId}`;
+      return el;
+    };
+    const add = (path, shift, content, className, color) => {
+      const guide = guideFor(path, shift);
+      if (guide) labelTexts.push({ guide, texts: [textOn(guide, content, '0.35em', className, color)] });
+    };
+    // Above everything, the whole trip in one label.
+    if (tripLabel) add(tripLabel.path, SHIFT.total, tripLabel.info, 'plan-leg-label total', '#1c1917');
+    // Each leg: time · kcal · distance above, the line it rides below. Sizes and
+    // positions come from fitLabels().
+    for (const { path, info, line, color } of labelLegs) {
+      add(path, SHIFT.info, info, 'plan-leg-label', color);
+      if (line) add(path, SHIFT.line, line, 'plan-leg-label line', color);
     }
     requestAnimationFrame(fitLabels);
   }
+
 
   // Each label sits on the straightest stretch of the part of its leg that's on screen
   // (not under the sheet or the map buttons; letters on the outside of a sharp bend
@@ -821,7 +859,7 @@ export function initPlanner({ map, locate, sheetInsets, railLines, getBuses, foc
       const total = guide.getTotalLength?.() ?? 0;
       const stretch = total ? visibleStretch(guide, total, rect) : null;
       for (const t of texts) {
-        const base = t.classList.contains('line') ? 13.5 : 12.5;
+        const base = t.classList.contains('total') ? 14 : t.classList.contains('line') ? 13.5 : 12.5;
         if (!stretch) { t.style.opacity = '0'; continue; }
         // Text length at the base size (getComputedTextLength scales with the font).
         const now = parseFloat(t.style.fontSize) || base;
