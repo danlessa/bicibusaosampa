@@ -15,7 +15,44 @@ import { decodeStreets } from './streets.js';
 
 const data = (name) => new URL(`../data/${name}`, import.meta.url);
 
+// Download progress of the two big files, reported as { kind: 'progress', loaded, total }
+// (bytes) so the panel can show it. Sizes fall back to the usual ones when the
+// response doesn't say (compressed responses have no Content-Length).
+const EXPECTED = { 'routing/transit.json': 3.7e6, 'routing/streets.bin': 14.5e6 };
+const got = {}, sizes = { ...EXPECTED };
+function report() {
+  const loaded = Object.values(got).reduce((a, b) => a + b, 0);
+  const total = Object.values(sizes).reduce((a, b) => a + b, 0);
+  self.postMessage({ kind: 'progress', loaded: Math.min(loaded, total), total });
+}
+
+async function fetchTracked(name) {
+  const res = await fetch(data(name));
+  if (!res.ok) throw new Error(`${name}: HTTP ${res.status}`);
+  if (!(name in EXPECTED) || !res.body) return res.arrayBuffer();
+  const length = Number(res.headers.get('content-length'));
+  if (length && !res.headers.get('content-encoding')) sizes[name] = length;
+  const reader = res.body.getReader(), chunks = [];
+  let n = 0, lastReport = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+    n += value.length;
+    got[name] = n;
+    if (n - lastReport > 256e3) { lastReport = n; report(); }
+  }
+  got[name] = sizes[name] = n;
+  report();
+  const out = new Uint8Array(n);
+  let at = 0;
+  for (const c of chunks) { out.set(c, at); at += c.length; }
+  return out.buffer;
+}
+
 async function getJson(url) {
+  const name = url.pathname.split('/data/')[1];
+  if (name in EXPECTED) return JSON.parse(new TextDecoder().decode(await fetchTracked(name)));
   const res = await fetch(url);
   if (!res.ok) throw new Error(`${url.pathname}: HTTP ${res.status}`);
   return res.json();
@@ -24,9 +61,7 @@ async function getJson(url) {
 // Without the street graph (missing or failed), walking and cycling are straight lines.
 async function getStreets() {
   try {
-    const res = await fetch(data('routing/streets.bin'));
-    if (!res.ok) return null;
-    return decodeStreets(await res.arrayBuffer());
+    return decodeStreets(await fetchTracked('routing/streets.bin'));
   } catch {
     return null;
   }

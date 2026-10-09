@@ -30,6 +30,9 @@ export async function searchPlaces(query, near, signal) {
     const { label, detail } = describe(p);
     if (!label) continue;
     const [lon, lat] = f.geometry.coordinates;
+    // The same place often comes back twice (a square and its street, a node and its
+    // building): keep the first of each name within ~300 m.
+    if (out.some((o) => o.label === label && Math.abs(o.lat - lat) < 0.003 && Math.abs(o.lon - lon) < 0.003)) continue;
     out.push({ label, detail, lat, lon });
   }
   return out;

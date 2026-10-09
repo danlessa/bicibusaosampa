@@ -26,6 +26,7 @@ const BUS_COLORS = {
   wait: { expected: '#eab308', unusual: '#f97316' },
 };
 const busColor = (status, unusual) => BUS_COLORS[status][unusual ? 'unusual' : 'expected'];
+const RAIL_DASH = { ok: null, wait: '7 5', closed: '1 6' };
 const STATUS_LABELS = { ok: 'Bici liberada', wait: 'Fora do horário da bici', closed: 'Fechada' };
 
 const $ = (sel) => document.querySelector(sel);
@@ -86,7 +87,8 @@ const BASE_MAPS = {
 };
 // Base maps stack (bottom to top, in this order), each with its own opacity.
 const BASE_LABELS = { osm: 'OpenStreetMap', topo: 'Topográfico colorido' };
-const BASE_DEFAULTS = { osm: { on: true, opacity: 1 }, topo: { on: true, opacity: 0.2 } };
+// On phones the relief starts off: two tile layers double the images to load and draw.
+const BASE_DEFAULTS = { osm: { on: true, opacity: 1 }, topo: { on: !matchMedia('(max-width: 640px)').matches, opacity: 0.2 } };
 let baseState = structuredClone(BASE_DEFAULTS);
 try {
   const saved = JSON.parse(localStorage.getItem('baseMaps') ?? 'null');
@@ -246,8 +248,9 @@ function stationIcon(modes) {
     stationIcons.set(key, L.divIcon({
       className: 'station-icon',
       html: imgs,
-      iconSize: [16 * n + 2 * (n - 1), 16],
-      iconAnchor: [(16 * n + 2 * (n - 1)) / 2, 8],
+      // Padded to a 32 px tap target around the 16 px symbols.
+      iconSize: [16 * n + 2 * (n - 1) + 16, 32],
+      iconAnchor: [(16 * n + 2 * (n - 1) + 16) / 2, 16],
     }));
   }
   return stationIcons.get(key);
@@ -267,7 +270,7 @@ function addRailGeometry(railGeo) {
       if (!line) continue;
       const latlngs = f.geometry.coordinates.map((part) => part.map(([lon, lat]) => [lat, lon]));
       // Thin continuous line in the bike status colour (set in renderRail).
-      const track = L.polyline(latlngs, { renderer: trackRenderer, weight: 2, opacity: railOpacity(line), bubblingMouseEvents: false });
+      const track = L.polyline(latlngs, { renderer: trackRenderer, weight: 2.5, opacity: railOpacity(line), lineCap: 'round', bubblingMouseEvents: false });
       track.on('click', (e) => L.popup().setLatLng(e.latlng).setContent(linePopup(line)).openOn(map));
       trackLayer.addLayer(track);
       line.tracks.push(track);
@@ -307,7 +310,9 @@ function renderRail() {
   const now = new Date();
   const items = lines.map((line) => {
     const s = railStatus(line, now);
-    for (const t of line.tracks) t.setStyle({ color: STATUS_COLORS[s.status] });
+    // Dashes too, not just colour: solid = bikes allowed, dashed = outside hours,
+    // dotted = closed.
+    for (const t of line.tracks) t.setStyle({ color: STATUS_COLORS[s.status], dashArray: RAIL_DASH[s.status] });
     const extra = s.live;
     return `<li data-ref="${esc(line.ref)}">
       ${badge(line)}
@@ -421,8 +426,8 @@ const busStopIcon = L.divIcon({
     <rect x="2.2" y="12.6" width="2.4" height="2.8" rx=".7" fill="#1c1917" stroke="#fff" stroke-width=".8"/>
     <rect x="9.4" y="12.6" width="2.4" height="2.8" rx=".7" fill="#1c1917" stroke="#fff" stroke-width=".8"/>
   </svg>`,
-  iconSize: [14, 16],
-  iconAnchor: [7, 8],
+  iconSize: [32, 32], // tap target around the 14×16 icon
+  iconAnchor: [16, 16],
 });
 
 // Thousands of stops: those of the expected lines are downloaded the first time
@@ -494,8 +499,9 @@ function busBadge(code) {
 
 // A box in the bus colour with an arrow pointing right; turned by iconTransform()
 // to point the way the bus is going.
-const busSvg = (body, ink) => `<svg class="bus-icon" viewBox="0 0 26 14" width="26" height="14" aria-hidden="true">
-  <rect x="1" y="1" width="24" height="12" rx="3" fill="${body}" stroke="${ink}" stroke-width="2"/>
+// Outside bike hours the outline is dashed, so the status doesn't rely on colour alone.
+const busSvg = (body, ink, dashed) => `<svg class="bus-icon" viewBox="0 0 26 14" width="26" height="14" aria-hidden="true">
+  <rect x="1" y="1" width="24" height="12" rx="3" fill="${body}" stroke="${ink}" stroke-width="2"${dashed ? ' stroke-dasharray="3 2"' : ''}/>
   <path d="M6 7h11M13.5 3.6 17.5 7l-4 3.4" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>`;
 
@@ -505,10 +511,11 @@ function busIcon(status, unusual) {
   if (!busIcons.has(key)) {
     busIcons.set(key, L.divIcon({
       className: 'bus-marker',
-      html: busSvg(busColor(status, unusual), '#1c1917'),
-      iconSize: [26, 14],
-      iconAnchor: [13, 7],
-      popupAnchor: [0, -7],
+      html: busSvg(busColor(status, unusual), '#1c1917', status !== 'ok'),
+      // A 40 px box around the small icon: what the finger hits.
+      iconSize: [40, 40],
+      iconAnchor: [20, 20],
+      popupAnchor: [0, -10],
     }));
   }
   return busIcons.get(key);
@@ -690,11 +697,13 @@ const PARKING_SHAPES = {
   paraciclo: { size: 20, outline: '<circle cx="12" cy="12" r="10"/>', stand: 0 },
   bicicletario: { size: 25, outline: '<path d="M12 1.6 22.6 10.2V21a1.4 1.4 0 0 1-1.4 1.4H2.8A1.4 1.4 0 0 1 1.4 21V10.2Z"/>', stand: 1.6 },
 };
-const parkingSvg = (kind, fill) => {
+// Closed spots also get a diagonal bar, so "closed" doesn't rely on red alone.
+const parkingSvg = (kind, fill, closed = false) => {
   const { size, outline, stand } = PARKING_SHAPES[kind];
   return `<svg viewBox="0 0 24 24" width="${size}" height="${size}" aria-hidden="true">
     <g fill="${fill}" stroke="#1c1917" stroke-width="1.6">${outline}</g>
     <path d="M8.6 16.4V11.4a3.4 3.4 0 0 1 6.8 0v5M6.6 16.6h10.8" transform="translate(0 ${stand})" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round"/>
+    ${closed ? '<path d="M4.5 19.5 19.5 4.5" stroke="#1c1917" stroke-width="4.2" stroke-linecap="round"/><path d="M4.5 19.5 19.5 4.5" stroke="#fff" stroke-width="2" stroke-linecap="round"/>' : ''}
   </svg>`;
 };
 for (const el of document.querySelectorAll('[data-parking-shape]')) el.innerHTML = parkingSvg(el.dataset.parkingShape, '#78716c');
@@ -706,9 +715,9 @@ function parkingIcon(kind, colorKey) {
     const { size } = PARKING_SHAPES[kind];
     parkingIcons.set(key, L.divIcon({
       className: 'parking-icon',
-      html: parkingSvg(kind, PARKING_COLORS[colorKey]),
-      iconSize: [size, size],
-      iconAnchor: [size / 2, size / 2],
+      html: parkingSvg(kind, PARKING_COLORS[colorKey], colorKey === 'closed'),
+      iconSize: [36, 36], // tap target around the icon
+      iconAnchor: [18, 18],
     }));
   }
   return parkingIcons.get(key);

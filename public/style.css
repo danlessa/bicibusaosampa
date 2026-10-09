@@ -278,6 +278,11 @@ h2 { margin: 16px 0 8px; font-size: 13px; text-transform: uppercase; letter-spac
 .dot.wait { background: var(--wait); }
 .dot.closed { background: var(--closed); }
 
+.swatch.dashed { border-style: dashed; }
+.bus-key { margin: 0 0 8px; display: grid; grid-template-columns: 1fr 1fr; column-gap: 8px; font-size: 13px; color: var(--muted); }
+.rail-swatch { flex: none; display: inline-block; width: 22px; height: 0; border-top: 3px solid var(--ok); }
+.rail-swatch.wait { border-top: 3px dashed var(--wait); }
+.rail-swatch.closed { border-top: 3px dotted var(--closed); }
 .swatch {
   flex: none;
   display: inline-block;
@@ -340,7 +345,8 @@ footer a { color: var(--accent); }
   scale: var(--bus-scale, 1);
   transition: transform 0.4s ease;
 }
-.station-icon { display: flex; gap: 2px; }
+.station-icon { display: flex; gap: 2px; align-items: center; justify-content: center; }
+.bus-marker, .bus-stop-icon, .parking-icon { display: grid; place-items: center; }
 .station-icon img {
   width: 16px;
   height: 16px;
@@ -523,3 +529,67 @@ footer a { color: var(--accent); }
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
 }
 .plan-transfer svg { width: 14px; height: 14px; fill: none; stroke: #fff; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+
+/* ------------------------------------------------------------ comfort */
+
+/* Undo and other actions in the toast. */
+.toast.actionable { pointer-events: auto; display: flex; gap: 12px; align-items: center; padding: 6px 6px 6px 16px; white-space: nowrap; max-width: calc(100vw - 32px); }
+.toast button {
+  min-height: 36px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--accent-fg);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+/* Planner: one sentence about the selected mode. */
+.plan-mode-caption { margin: -2px 0 8px; }
+
+/* With a route found, the form folds into the summary line and results come first. */
+#plan-details.planned #plan-stops,
+#plan-details.planned .plan-actions,
+#plan-details.planned .plan-optimize,
+#plan-details.planned .plan-more { display: none; }
+.plan-summary {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  width: 100%;
+  min-height: var(--touch);
+  margin: 4px 0 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+  color: var(--fg);
+  text-align: left;
+  cursor: pointer;
+}
+.plan-summary[hidden] { display: none; }
+.plan-summary-route { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: center; }
+.plan-summary-label { max-width: 11em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.plan-summary .sep { color: var(--muted); }
+.plan-summary-edit { flex: none; color: var(--accent); font-weight: 600; font-size: 14px; }
+.plan-status-row { display: flex; gap: 8px; align-items: center; justify-content: space-between; }
+.plan-share, .plan-download {
+  flex: none;
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--accent);
+  font-weight: 600;
+  cursor: pointer;
+}
+.plan-share[hidden] { display: none; }
+#plan-status progress { display: block; width: 100%; margin-top: 6px; accent-color: var(--accent); }
+.sheet:focus { outline: none; }
+
+/* Phones: the menu opens at a low "peek" height and grows on first use. */
+@media (max-width: 640px) {
+  #panel.peek { max-height: min(45dvh, 300px); }
+}

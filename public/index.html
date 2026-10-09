@@ -49,7 +49,7 @@
     </button>
   </div>
 
-  <aside id="panel" class="sheet" aria-label="Menu">
+  <aside id="panel" class="sheet" aria-label="Menu" tabindex="-1">
     <div class="grip" role="separator" aria-label="Arraste para redimensionar"></div>
     <header>
       <h1>Bici Busão Sampa</h1>
@@ -59,6 +59,7 @@
       <section id="plan-section">
         <details id="plan-details" open>
           <summary><h2>Planejar viagem</h2></summary>
+          <button type="button" id="plan-summary" class="plan-summary" hidden aria-label="Editar origem e destino"></button>
           <fieldset class="plan-modes plan-profiles">
             <legend class="sr-only">Como ir</legend>
             <label title="Intermodal + bicicleta + estacionar"><input type="radio" name="plan-profile" value="bike" checked aria-label="Intermodal, bicicleta e estacionar"><span aria-hidden="true">🚌+🚲+🅿️</span></label>
@@ -66,6 +67,7 @@
             <label title="Intermodal"><input type="radio" name="plan-profile" value="walk" aria-label="Intermodal, a pé"><span aria-hidden="true">🚌</span></label>
             <label title="Só bicicleta"><input type="radio" name="plan-profile" value="cycle" aria-label="Só bicicleta"><span aria-hidden="true">🚲</span></label>
           </fieldset>
+          <p id="plan-mode-caption" class="note plan-mode-caption" aria-live="polite"></p>
           <ol id="plan-stops" class="plan-stops"></ol>
           <div class="plan-actions">
             <button type="button" id="plan-add-stop">+ Parada</button>
@@ -75,7 +77,7 @@
           <fieldset class="plan-modes plan-optimize">
             <legend class="sr-only">Prioridade</legend>
             <label><input type="radio" name="plan-optimize" value="time" checked><span>⏱️ Mais rápido</span></label>
-            <label><input type="radio" name="plan-optimize" value="balanced"><span>⚖️ Balanceado</span></label>
+            <label><input type="radio" name="plan-optimize" value="balanced"><span>⚖️ Equilibrado</span></label>
             <label><input type="radio" name="plan-optimize" value="energy"><span>🔋 Menos esforço</span></label>
           </fieldset>
           <details class="plan-more">
@@ -95,7 +97,10 @@
               <button type="button" id="plan-now">Agora</button>
             </div>
           </details>
-          <p id="plan-status" class="note" role="status"></p>
+          <div class="plan-status-row">
+            <p id="plan-status" class="note" role="status"></p>
+            <button type="button" id="plan-share" class="plan-share" hidden>Compartilhar</button>
+          </div>
           <ol id="plan-results" class="plan-results"></ol>
         </details>
       </section>
@@ -111,6 +116,12 @@
         <details id="bus-details">
           <summary><h2>Ônibus <span id="bus-count" class="count"></span></h2></summary>
           <p id="bus-status" class="note"></p>
+          <ul class="legend bus-key" aria-label="Cores dos ônibus">
+            <li><span class="swatch" style="background:#16a34a"></span>Bici liberada</li>
+            <li><span class="swatch" style="background:#9333ea"></span>Liberada, fora da rota</li>
+            <li><span class="swatch dashed" style="background:#eab308"></span>Fora do horário</li>
+            <li><span class="swatch dashed" style="background:#f97316"></span>Fora do horário e da rota</li>
+          </ul>
           <details id="bus-unusual" hidden>
             <summary id="bus-unusual-summary">Fora da rota habitual</summary>
             <ul id="bus-unusual-list" class="lines"></ul>
@@ -128,7 +139,7 @@
     </div>
   </aside>
 
-  <aside id="layers-panel" class="sheet collapsed" aria-label="Camadas e legenda">
+  <aside id="layers-panel" class="sheet collapsed" aria-label="Camadas e legenda" tabindex="-1">
     <div class="grip" role="separator" aria-label="Arraste para redimensionar"></div>
     <header><h1>Camadas</h1></header>
     <div class="sheet-body">
@@ -136,16 +147,16 @@
       <h2>Legenda</h2>
       <h3 class="legend-title">Metrô e trens</h3>
       <ul class="legend">
-        <li><span class="dot ok"></span>Bici liberada</li>
-        <li><span class="dot wait"></span>Fora do horário</li>
-        <li><span class="dot closed"></span>Fechada</li>
+        <li><span class="rail-swatch ok"></span>Bici liberada</li>
+        <li><span class="rail-swatch wait"></span>Fora do horário (tracejado)</li>
+        <li><span class="rail-swatch closed"></span>Fechada (pontilhado)</li>
       </ul>
       <h3 class="legend-title">Ônibus</h3>
       <ul class="legend">
         <li><span class="swatch" style="background:#16a34a"></span>Bici liberada</li>
         <li><span class="swatch" style="background:#9333ea"></span>Bici liberada, fora da rota</li>
-        <li><span class="swatch" style="background:#eab308"></span>Fora do horário</li>
-        <li><span class="swatch" style="background:#f97316"></span>Fora do horário e da rota</li>
+        <li><span class="swatch dashed" style="background:#eab308"></span>Fora do horário (contorno tracejado)</li>
+        <li><span class="swatch dashed" style="background:#f97316"></span>Fora do horário e da rota</li>
       </ul>
       <h3 class="legend-title">Onde deixar a bici</h3>
       <ul class="legend">

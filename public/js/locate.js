@@ -18,6 +18,7 @@ export function initLocate(map) {
   let last = null; // L.LatLng of the latest fix
   let dot = null, ring = null;
   const waiting = []; // resolvers of position() calls made before the first fix
+  const onFirstFix = []; // callbacks for the first fix after loading
 
   function start() {
     if (!navigator.geolocation) { toast('Este navegador não informa a localização'); return; }
@@ -50,6 +51,7 @@ export function initLocate(map) {
       map.setView(e.latlng, Math.max(map.getZoom(), ZOOM));
     }
     while (waiting.length) waiting.shift().resolve(e.latlng);
+    while (onFirstFix.length) onFirstFix.shift()(e.latlng);
   });
 
   map.on('locationerror', (e) => {
@@ -73,6 +75,11 @@ export function initLocate(map) {
     .catch(() => {});
 
   return {
+    /** Runs `cb(latlng)` once, on the first fix (only if location was already allowed). */
+    whenLocated(cb) {
+      if (last) cb(last);
+      else onFirstFix.push(cb);
+    },
     /** Latest position, asking for it (and the permission) if needed. */
     position() {
       if (last && watching) return Promise.resolve(last);

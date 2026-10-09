@@ -17,12 +17,24 @@ function remember(key, value) {
 // ---------------------------------------------------------------- toast
 
 let toastTimer;
-export function toast(message, ms = 2600) {
+/** A short message at the top; `action` ({ label, run }) adds a button, e.g. "Desfazer". */
+export function toast(message, { ms = 2600, action = null } = {}) {
   const el = document.getElementById('toast');
-  el.textContent = message;
+  el.replaceChildren(document.createTextNode(message));
+  if (action) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.textContent = action.label;
+    button.addEventListener('click', () => {
+      el.classList.remove('show');
+      action.run();
+    }, { once: true });
+    el.append(button);
+  }
+  el.classList.toggle('actionable', !!action);
   el.classList.add('show');
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => el.classList.remove('show'), ms);
+  toastTimer = setTimeout(() => el.classList.remove('show'), action ? Math.max(ms, 5000) : ms);
 }
 
 // ---------------------------------------------------------------- sheets
@@ -42,6 +54,8 @@ export function setSheetOpen(id, open) {
     for (const [other] of sheets) if (other !== id) setSheetOpen(other, false);
   }
   if (id === 'panel') remember('panelCollapsed', open ? '' : '1');
+  // Keyboard and screen-reader users land in a sheet they open.
+  if (open && sheet.opened) sheet.el.focus({ preventScroll: true });
   document.body.classList.toggle('sheet-open', [...sheets.keys()].some(isSheetOpen));
   window.dispatchEvent(new CustomEvent('sheetchange'));
 }
@@ -93,7 +107,13 @@ export function initSheets() {
     const el = document.getElementById(id);
     const button = document.getElementById(buttonId);
     sheets.set(id, { el, button });
-    button.addEventListener('click', () => setSheetOpen(id, !isSheetOpen(id)));
+    button.addEventListener('click', () => {
+      const open = !isSheetOpen(id);
+      sheets.get(id).opened = open; // focus only when the user opens it
+      setSheetOpen(id, open);
+      sheets.get(id).opened = false;
+      if (!open) button.focus();
+    });
     const grip = el.querySelector('.grip');
     if (grip) wireGrip(grip, id);
     try {
@@ -103,6 +123,25 @@ export function initSheets() {
         el.style.maxHeight = 'none';
       }
     } catch {}
+  }
+  // Escape closes the sheet on top (search lists handle their own Escape first).
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape' || e.defaultPrevented) return;
+    const open = [...sheets.keys()].filter(isSheetOpen);
+    const id = open.find((k) => sheets.get(k).el.contains(document.activeElement)) ?? open.at(-1);
+    if (!id) return;
+    setSheetOpen(id, false);
+    sheets.get(id).button.focus();
+  });
+  // Phones: the menu starts at a low "peek" height (unless the user resized it) and
+  // grows to its normal size on first use.
+  const menu = document.getElementById('panel');
+  if (phone.matches && !menu.style.height) {
+    menu.classList.add('peek');
+    const grow = () => menu.classList.remove('peek');
+    menu.addEventListener('focusin', grow, { once: true });
+    menu.addEventListener('pointerdown', (e) => { if (!e.target.closest('.grip')) grow(); }, { once: true });
+    window.addEventListener('plan-results', grow, { once: true });
   }
   let collapsed = null;
   try { collapsed = localStorage.getItem('panelCollapsed'); } catch {}

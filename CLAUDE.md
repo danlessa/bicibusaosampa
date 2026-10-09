@@ -229,6 +229,25 @@ append `window.__map = map;`.
 - **Layer control:** toggles rail lines, stations, bus routes, live buses, bus stops
   and bike parking.
 
+## Comfort features (keep them working)
+
+- Origin is prefilled with "Minha localização" when location is already allowed
+  (`locate.whenLocated`); the planner's 18 MB download waits for a real action.
+- On mobile data / data saver, the first planner download asks first; progress is
+  shown from the worker's `progress` messages.
+- After a route is found the form folds into a tappable "A → B" summary
+  (`#plan-details.planned`) and results come first.
+- Map taps that add a point show a toast with "Desfazer" and vibrate briefly.
+- Empty search fields offer 📍 Minha localização, 🏠 Casa / 💼 Trabalho (saved from a
+  pin's popup) and recent picks. Search inputs are ARIA comboboxes.
+- Planned trips are in the URL hash (`#p=lat,lon;lat,lon&m=mode`) and "Compartilhar"
+  uses the share sheet; opening such a link plans the trip.
+- Status never relies on colour alone: dashed rail = outside bike hours, dotted =
+  closed; dashed bus outline = outside hours; slashed parking icon = closed.
+- Map icons have tap areas of at least 32–40 px. Sheets take focus when opened and
+  close with Escape. The phone menu opens at a low "peek" height.
+- The topographic base map starts off on phones.
+
 ## Performance (phones)
 
 - Panning and zooming cost grows with the number of DOM markers, so marker layers are

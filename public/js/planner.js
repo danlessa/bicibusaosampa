@@ -5,6 +5,7 @@ import { placeName, searchPlaces } from './geocode.js';
 import { ACCESS } from './parking.js';
 import { balance, DEFAULT_TIME_WEIGHT, flatSpeed, POWER_LEVELS, TIME_WEIGHTS } from './raptor.js';
 import { spParts } from './time.js';
+import { toast } from './ui.js';
 
 const PACES = [
   ['suave', 'Suave'],
@@ -81,6 +82,7 @@ export function initPlanner({ map, rotatingPane, locate, sheetInsets, railLines,
     if (!worker) {
       worker = new Worker(new URL('./planner-worker.js', import.meta.url), { type: 'module' });
       worker.onmessage = ({ data }) => {
+        if (data.kind === 'progress') return showProgress(data);
         pending.get(data.id)?.(data);
         pending.delete(data.id);
       };
@@ -101,8 +103,32 @@ export function initPlanner({ map, rotatingPane, locate, sheetInsets, railLines,
   // once someone starts planning, not merely because the section is open.
   let loaded = false;
   let loading = null;
+  const MB = (b) => `${Math.round(b / 1e6)} MB`;
+
+  function showProgress({ loaded: got, total }) {
+    if (loaded) return;
+    status.innerHTML = `Baixando dados do planejador: ${MB(got)} de ${MB(total)}
+      <progress max="${total}" value="${got}" aria-hidden="true"></progress>`;
+  }
+
+  // On mobile data or with data saver on, ask before the first (~18 MB) download,
+  // unless it's already cached or the user said yes before.
+  async function mayDownload() {
+    if (recall('plannerDataOk')) return;
+    try { if (await caches.match('/data/routing/streets.bin')) return; } catch {}
+    const c = navigator.connection;
+    const metered = c && (c.saveData || c.type === 'cellular' || /(^|-)2g$/.test(c.effectiveType ?? ''));
+    if (!metered) return;
+    await new Promise((resolve) => {
+      status.innerHTML = 'O planejador precisa baixar ~18 MB uma vez (melhor no Wi‑Fi). <button type="button" class="plan-download">Baixar agora</button>';
+      status.querySelector('button').addEventListener('click', () => { remember('plannerDataOk', '1'); resolve(); }, { once: true });
+    });
+  }
+
   function ensureLoaded() {
-    loading ??= ask({ kind: 'load' }).then((r) => { loaded = r.kind === 'loaded'; if (!loaded) loading = null; });
+    loading ??= mayDownload()
+      .then(() => ask({ kind: 'load' }))
+      .then((r) => { loaded = r.kind === 'loaded'; if (!loaded) loading = null; });
     return loading;
   }
 
@@ -137,8 +163,17 @@ export function initPlanner({ map, rotatingPane, locate, sheetInsets, railLines,
         .addTo(map);
       const box = document.createElement('div');
       box.className = 'plan-menu';
-      box.innerHTML = `<b>${esc(ROLE[role(i)])}</b><button type="button">Remover</button>`;
-      box.querySelector('button').addEventListener('click', () => { map.closePopup(); quiet(400); removeStop(i); });
+      box.innerHTML = `<b>${esc(ROLE[role(i)])}</b><button type="button" data-a="remove">Remover</button>
+        <button type="button" data-a="Casa">🏠 Casa</button><button type="button" data-a="Trabalho">💼 Trabalho</button>`;
+      box.addEventListener('click', (e) => {
+        const a = e.target.closest('button')?.dataset.a;
+        if (!a) return;
+        map.closePopup();
+        quiet(400);
+        if (a === 'remove') return removeStop(i);
+        savePlace(a, stops[i]);
+        toast(`Salvo como ${a}`);
+      });
       marker.bindPopup(box, { closeButton: false });
       return marker;
     });
@@ -150,8 +185,9 @@ export function initPlanner({ map, rotatingPane, locate, sheetInsets, railLines,
         <span class="pin ${role(i)}" aria-hidden="true">${pinText(i)}</span>
         <div class="plan-search">
           <input type="search" enterkeyhint="search" autocomplete="off" spellcheck="false"
+            role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="plan-suggest-${i}"
             aria-label="${ROLE[role(i)]}" placeholder="Buscar ${ROLE[role(i)].toLowerCase()}…" value="${esc(p?.label ?? '')}">
-          <ul class="plan-suggest" role="listbox" hidden></ul>
+          <ul class="plan-suggest" id="plan-suggest-${i}" role="listbox" aria-label="Sugestões" hidden></ul>
         </div>
         ${i === 0 ? `<button type="button" class="plan-icon-btn plan-gps" aria-label="Sair da minha localização" title="Minha localização">${GPS_ICON}</button>` : ''}
         ${role(i) === 'via' ? '<button type="button" class="plan-icon-btn plan-remove" aria-label="Remover parada" title="Remover parada">✕</button>' : ''}
@@ -160,18 +196,18 @@ export function initPlanner({ map, rotatingPane, locate, sheetInsets, railLines,
 
   const coords = (p) => `${p.lat.toFixed(4)}, ${p.lon.toFixed(4)}`;
 
-  function setStop(i, point, { label } = {}) {
+  function setStop(i, point, { label, auto = false } = {}) {
     const p = { lat: point.lat, lon: point.lon, label: label ?? point.label ?? null };
     stops[i] = p;
     if (!p.label) {
       p.label = coords(p);
       placeName(p.lat, p.lon).then((name) => {
-        if (name && stops[i] === p) { p.label = name; renderStops(); }
+        if (name && stops[i] === p) { p.label = name; renderStops(); renderSummary(); }
       });
     }
     syncMarkers();
     renderStops();
-    ensureLoaded();
+    if (!auto) ensureLoaded();
     update();
   }
 
@@ -185,10 +221,16 @@ export function initPlanner({ map, rotatingPane, locate, sheetInsets, railLines,
 
   function addTap(latlng) {
     const point = { lat: latlng.lat, lon: latlng.lng };
+    const before = stops.map((p) => p && { ...p });
     const empty = stops.indexOf(null);
-    if (empty >= 0) return setStop(empty, point);
-    stops.push(null);
-    setStop(stops.length - 1, point);
+    const i = empty >= 0 ? empty : stops.length;
+    if (empty < 0) stops.push(null);
+    setStop(i, point);
+    navigator.vibrate?.(12);
+    // A stray tap while exploring the map shouldn't cost anything: offer to undo it.
+    toast(`${ROLE[role(i)]} ${role(i) === 'to' ? 'marcado' : 'marcada'} no mapa`, {
+      action: { label: 'Desfazer', run: () => { stops = before; syncMarkers(); renderStops(); update(); } },
+    });
   }
 
   // Taps on the map (not on a bus, station or pin, which keep their popups) add points
@@ -242,6 +284,8 @@ export function initPlanner({ map, rotatingPane, locate, sheetInsets, railLines,
     results.innerHTML = '';
     status.textContent = '';
     map.getContainer().classList.remove('route-shown');
+    setPlanned(false);
+    writeLink();
   });
 
   // ---------------------------------------------------------------- place search
@@ -255,12 +299,32 @@ export function initPlanner({ map, rotatingPane, locate, sheetInsets, railLines,
 
   function showResults(li, items, message) {
     const ul = suggestions(li);
+    const input = li.querySelector('input');
     found = items;
     active = -1;
     ul.innerHTML = message
       ? `<li class="plan-suggest-note">${esc(message)}</li>`
-      : items.map((r, k) => `<li role="option" data-k="${k}"><b>${esc(r.label)}</b>${r.detail ? `<small>${esc(r.detail)}</small>` : ''}</li>`).join('');
+      : items.map((r, k) => `<li role="option" id="plan-opt-${li.dataset.i}-${k}" data-k="${k}"><b>${r.icon ? `${r.icon} ` : ''}${esc(r.label)}</b>${r.detail ? `<small>${esc(r.detail)}</small>` : ''}</li>`).join('');
     ul.hidden = !message && !items.length;
+    input.setAttribute('aria-expanded', String(!ul.hidden));
+    input.removeAttribute('aria-activedescendant');
+  }
+
+  // Saved places (Casa, Trabalho) and the last few picks, offered before typing.
+  const places = () => { try { return JSON.parse(recall('planPlaces') ?? '{}'); } catch { return {}; } };
+  const recents = () => { try { return JSON.parse(recall('planRecent') ?? '[]'); } catch { return []; } };
+  function savePlace(name, p) {
+    if (!p) return;
+    remember('planPlaces', JSON.stringify({ ...places(), [name]: { lat: p.lat, lon: p.lon, label: p.label } }));
+  }
+  function rememberRecent(r) {
+    const list = [r, ...recents().filter((x) => x.label !== r.label)].slice(0, 5);
+    remember('planRecent', JSON.stringify(list.map(({ label, detail, lat, lon }) => ({ label, detail, lat, lon }))));
+  }
+  function quickPicks(i) {
+    const saved = Object.entries(places()).map(([name, p]) => ({ ...p, icon: name === 'Casa' ? '🏠' : '💼', detail: p.label, label: name, saved: true }));
+    const mine = i === 0 && locate ? [{ label: 'Minha localização', icon: '📍', gps: true }] : [];
+    return [...mine, ...saved, ...recents().map((r) => ({ ...r, icon: '🕘' }))];
   }
 
   function pick(li, k) {
@@ -269,17 +333,39 @@ export function initPlanner({ map, rotatingPane, locate, sheetInsets, railLines,
     quiet(700);
     const i = Number(li.dataset.i);
     suggestions(li).hidden = true;
+    li.querySelector('input').setAttribute('aria-expanded', 'false');
+    if (r.gps) {
+      status.textContent = 'Localizando…';
+      locate.position()
+        .then((ll) => setStop(i, { lat: ll.lat, lon: ll.lng }, { label: 'Minha localização' }))
+        .catch(() => { status.textContent = 'Sem localização.'; });
+      return;
+    }
+    if (!r.saved) rememberRecent(r);
     setStop(i, { lat: r.lat, lon: r.lon }, { label: r.label });
     if (!journeys.length) map.setView([r.lat, r.lon], Math.max(map.getZoom(), 15));
   }
 
-  stopsList.addEventListener('focusin', (e) => { if (e.target.matches('input')) ensureLoaded(); });
+  stopsList.addEventListener('focusin', (e) => {
+    const input = e.target.closest('input');
+    if (!input) return;
+    ensureLoaded();
+    // Empty field: offer my location, saved places and recent picks right away.
+    if (!input.value.trim()) {
+      const li = input.closest('li[data-i]');
+      const picks = quickPicks(Number(li.dataset.i));
+      if (picks.length) showResults(li, picks);
+    } else {
+      input.select();
+    }
+  });
   stopsList.addEventListener('input', (e) => {
     const input = e.target.closest('input');
     if (!input) return;
     const li = input.closest('li[data-i]');
     clearTimeout(searchTimer);
     const q = input.value.trim();
+    if (!q) return showResults(li, quickPicks(Number(li.dataset.i)));
     if (q.length < 3) return showResults(li, []);
     searchTimer = setTimeout(async () => {
       searchAbort?.abort();
@@ -309,21 +395,67 @@ export function initPlanner({ map, rotatingPane, locate, sheetInsets, railLines,
       if (!found.length) return;
       e.preventDefault();
       active = (active + (e.key === 'ArrowDown' ? 1 : -1) + found.length) % found.length;
-      ul.querySelectorAll('li[data-k]').forEach((o, k) => o.classList.toggle('active', k === active));
+      ul.querySelectorAll('li[data-k]').forEach((o, k) => {
+        o.classList.toggle('active', k === active);
+        o.setAttribute('aria-selected', String(k === active));
+      });
+      input.setAttribute('aria-activedescendant', `plan-opt-${li.dataset.i}-${active}`);
     } else if (e.key === 'Enter') {
       e.preventDefault();
       if (found.length) pick(li, Math.max(0, active));
       else input.blur(); // closes the phone keyboard
     } else if (e.key === 'Escape') {
+      if (!ul.hidden) e.stopPropagation(); // closes the list, not the sheet
       ul.hidden = true;
+      input.setAttribute('aria-expanded', 'false');
     }
   });
   stopsList.addEventListener('focusout', (e) => {
     const li = e.target.closest?.('li[data-i]');
-    if (li) setTimeout(() => { suggestions(li).hidden = true; }, 150);
+    if (li) setTimeout(() => {
+      suggestions(li).hidden = true;
+      li.querySelector('input')?.setAttribute('aria-expanded', 'false');
+    }, 150);
   });
 
   renderStops();
+
+  // ---------------------------------------------------------------- planned view
+
+  // With a route found, the form folds into one "A → B" line and the options come
+  // first; tapping the line (or "Editar") opens the form again.
+  const summaryEl = $('#plan-summary');
+  function renderSummary() {
+    const pts = stops.filter(Boolean);
+    summaryEl.innerHTML = `<span class="plan-summary-route">${pts.map((p, k) => {
+      const i = stops.indexOf(p);
+      return `<span class="pin ${role(i)}" aria-hidden="true">${pinText(i)}</span><span class="plan-summary-label">${esc(p.label)}</span>${k < pts.length - 1 ? '<span class="sep" aria-hidden="true">→</span>' : ''}`;
+    }).join('')}</span><span class="plan-summary-edit">Editar</span>`;
+  }
+  function setPlanned(on) {
+    details.classList.toggle('planned', on);
+    summaryEl.hidden = !on;
+    if (on) renderSummary();
+  }
+  summaryEl.addEventListener('click', () => {
+    setPlanned(false);
+    stopsList.querySelector('li:last-child input')?.focus();
+  });
+
+  // Share: the points and the mode in the address (#p=lat,lon;lat,lon&m=bike).
+  function writeLink() {
+    const pts = stops.filter(Boolean);
+    const hash = pts.length >= 2 ? `#p=${pts.map((p) => `${p.lat.toFixed(5)},${p.lon.toFixed(5)}`).join(';')}&m=${profile()}` : '';
+    history.replaceState(null, '', `${location.pathname}${location.search}${hash}`);
+  }
+  $('#plan-share').addEventListener('click', async () => {
+    writeLink();
+    const url = location.href;
+    try {
+      if (navigator.share) await navigator.share({ title: 'Rota no Bici Busão Sampa', url });
+      else { await navigator.clipboard.writeText(url); toast('Link copiado'); }
+    } catch {}
+  });
 
   // ---------------------------------------------------------------- options
 
@@ -356,9 +488,17 @@ export function initPlanner({ map, rotatingPane, locate, sheetInsets, railLines,
   const arterials = $('#plan-arterials');
   arterials.checked = recall('planAvoidArterials') !== '0';
   arterials.addEventListener('change', () => { remember('planAvoidArterials', arterials.checked ? '1' : '0'); update(); });
+  // One plain sentence under the mode buttons says what the selected mode does.
+  const MODE_CAPTION = {
+    bike: 'Bici + ônibus e trilhos; dá para deixar a bici num bicicletário',
+    carry: 'Bici + ônibus e trilhos, sempre levando a bici',
+    walk: 'Ônibus e trilhos, a pé',
+    cycle: 'Só de bicicleta, sem transporte público',
+  };
   function syncPower() {
     $('#plan-power-field').hidden = profile() === 'walk';
     $('#plan-arterials-field').hidden = profile() === 'walk';
+    $('#plan-mode-caption').textContent = MODE_CAPTION[profile()] ?? '';
   }
   syncPower();
   for (const r of document.querySelectorAll('input[name="plan-profile"]')) {
@@ -387,7 +527,12 @@ export function initPlanner({ map, rotatingPane, locate, sheetInsets, railLines,
     const vehicles = later ? null : getBuses();
     const mode = optimize();
     const options = { profile: profile(), optimize: mode, timeWeight: timeWeight(), avoidArterials: arterials.checked, power: POWER_LEVELS[power.value], vehicles };
-    status.textContent = loaded ? 'Calculando…' : 'Baixando dados do planejador (só na primeira vez)…';
+    if (!loaded) {
+      status.textContent = 'Preparando o planejador…';
+      await ensureLoaded();
+      if (id !== searchId) return;
+    }
+    status.textContent = 'Calculando…';
 
     // With stops in between, each leg leaves when the previous one arrives, and the
     // trip is the best option of every leg, one after the other.
@@ -502,6 +647,10 @@ export function initPlanner({ map, rotatingPane, locate, sheetInsets, railLines,
   }
 
   function render() {
+    setPlanned(journeys.length > 0);
+    $('#plan-share').hidden = !journeys.length;
+    if (journeys.length) window.dispatchEvent(new Event('plan-results'));
+    writeLink();
     results.innerHTML = journeys.map((j, i) => `
       <li class="${i === selected ? 'selected' : ''}" data-i="${i}">
         <button type="button" class="plan-journey" aria-expanded="${i === selected}">
@@ -915,4 +1064,26 @@ export function initPlanner({ map, rotatingPane, locate, sheetInsets, railLines,
     cancelAnimationFrame(rotateFrame);
     rotateFrame = requestAnimationFrame(refreshLabels);
   });
+
+  // ---------------------------------------------------------------- start
+
+  // A shared link (#p=lat,lon;lat,lon&m=mode) opens with its trip planned.
+  const shared = new URLSearchParams(location.hash.slice(1));
+  const sharedPts = (shared.get('p') ?? '').split(';').map((x) => x.split(',').map(Number)).filter((x) => x.length === 2 && x.every(Number.isFinite));
+  if (sharedPts.length >= 2) {
+    const mode = shared.get('m');
+    for (const r of document.querySelectorAll('input[name="plan-profile"]')) if (r.value === mode) r.checked = true;
+    syncPower();
+    stops = sharedPts.map(([lat, lon]) => ({ lat, lon, label: `${lat.toFixed(4)}, ${lon.toFixed(4)}` }));
+    stops.forEach((p) => placeName(p.lat, p.lon).then((name) => { if (name) { p.label = name; renderStops(); renderSummary(); } }));
+    syncMarkers();
+    renderStops();
+    update();
+  } else {
+    // Most trips start where you are: with location already allowed, the origin is
+    // filled in, and only the destination is left to choose.
+    locate?.whenLocated((ll) => {
+      if (!stops[0]) setStop(0, { lat: ll.lat, lon: ll.lng }, { label: 'Minha localização', auto: true });
+    });
+  }
 }
