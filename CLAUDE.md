@@ -77,7 +77,9 @@ append `window.__map = map;`.
       in the leg's colour. Each label
       sits on the straightest stretch of the leg's on-screen part (outside the sheet),
       shrinks to fit it (down to 7 px, then fades), and glides to its new spot when
-      the view changes.
+      the view changes. With 2+ rides of a kind, their trail icons carry a 1, 2, …
+      badge; a dark ⇄ marker sits at each change of mode. Route lines don't bubble
+      clicks, so tapping them never adds a trip point.
     - The mode selector (three emoji buttons under the section title, text in
       aria-label/title) maps to profiles: 🚌 + 🚲 + 🅿️ (intermodal, bike, park) =
       `bike`, 🚌 + 🚲 = `carry`, 🚌 (intermodal on foot) = `walk`, 🚲 (only the bike, no

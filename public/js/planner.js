@@ -529,8 +529,21 @@ export function initPlanner({ map, locate, sheetInsets, railLines, getBuses, foc
     clearLabels();
     if (!j) return;
     const bounds = L.latLngBounds([]);
+    // With two or more rides of a kind (bus, rail), their icons carry 1, 2, … in order.
+    const glyphOf = (leg) => (leg.kind === 'bike' ? 'bike' : leg.kind === 'ride' ? (leg.mode === 'bus' ? 'wheel' : 'rail') : null);
+    const rideCount = {};
+    for (const leg of j.legs) if (leg.kind === 'ride') rideCount[glyphOf(leg)] = (rideCount[glyphOf(leg)] ?? 0) + 1;
+    const rideSeen = {};
+    let prev = null; // previous leg drawn, for the change-of-mode icons
     for (const leg of j.legs) {
       if (leg.kind === 'station') continue;
+      // A change of mode (get on or off, change lines) is marked where the next leg
+      // starts; the bicicletário marker already marks its own.
+      if (prev && prev.kind !== 'park' && leg.kind !== 'park' && (prev.kind !== leg.kind || leg.kind === 'ride')) {
+        const at = legStart(leg);
+        L.marker(at, { pane: 'planPins', icon: transferIcon, interactive: false, keyboard: false }).addTo(routeLayer);
+      }
+      prev = leg;
       if (leg.kind === 'park') {
         L.marker([leg.at.lat, leg.at.lon], {
           pane: 'planPins',
@@ -543,14 +556,17 @@ export function initPlanner({ map, locate, sheetInsets, railLines, getBuses, foc
       const color = legColor(leg);
       // Riding legs are a trail of icons (bike, bus wheel, rail track) over a thin line
       // that keeps the shape on curves; walking stays a dotted line.
-      const glyph = leg.kind === 'bike' ? 'bike' : leg.kind === 'ride' ? (leg.mode === 'bus' ? 'wheel' : 'rail') : null;
+      const glyph = glyphOf(leg);
+      // Taps on the route open its tooltip; they must not reach the map, which would
+      // add a trip point there.
       if (glyph) {
-        const line = L.polyline(path, { renderer, color, weight: 3, opacity: 0.55 }).addTo(routeLayer);
+        const line = L.polyline(path, { renderer, color, weight: 3, opacity: 0.55, bubblingMouseEvents: false }).addTo(routeLayer);
         if (leg.kind === 'ride') line.bindTooltip(`${lineName(leg)} · sentido ${esc(leg.headsign.trim())}`);
-        iconLegs.push({ path, glyph, color });
+        const n = leg.kind === 'ride' && rideCount[glyph] > 1 ? (rideSeen[glyph] = (rideSeen[glyph] ?? 0) + 1) : null;
+        iconLegs.push({ path, glyph, color, n });
       } else {
         L.polyline(path, { renderer, color: '#ffffff', weight: 7, opacity: 0.8, interactive: false }).addTo(routeLayer);
-        L.polyline(path, { renderer, color, weight: 4, dashArray: '1 7', lineCap: 'round' }).addTo(routeLayer);
+        L.polyline(path, { renderer, color, weight: 4, dashArray: '1 7', lineCap: 'round', bubblingMouseEvents: false }).addTo(routeLayer);
       }
       for (const p of path) bounds.extend(p);
       if (leg.interchange) continue;
@@ -586,12 +602,22 @@ export function initPlanner({ map, locate, sheetInsets, railLines, getBuses, foc
     rail: '<path d="M8.5 3v18M15.5 3v18M5.5 6.5h13M5.5 12h13M5.5 17.5h13"/>',
   };
 
-  function trailIcon(glyph, color, angle) {
+  const legStart = (leg) => (leg.path?.[0] ?? [leg.from.lat, leg.from.lon]);
+
+  // Where the trip changes mode: two arrows swapping, on a dark disc.
+  const transferIcon = L.divIcon({
+    className: 'plan-transfer',
+    html: '<span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 8h13l-3.5-3.5M19 16H6l3.5 3.5"/></svg></span>',
+    iconSize: [24, 24],
+    iconAnchor: [12, 12],
+  });
+
+  function trailIcon(glyph, color, angle, n) {
     // Rails turn with the track; the bike faces where it's going; the wheel doesn't care.
     const turn = glyph === 'rail' ? `rotate(${angle + 90}deg)` : glyph === 'bike' && Math.cos((angle * Math.PI) / 180) < 0 ? 'scaleX(-1)' : '';
     return L.divIcon({
       className: 'plan-trail',
-      html: `<span style="background:${color}"><svg viewBox="0 0 24 24" style="transform:${turn}">${GLYPHS[glyph]}</svg></span>`,
+      html: `<span style="background:${color}"><svg viewBox="0 0 24 24" style="transform:${turn}">${GLYPHS[glyph]}</svg>${n ? `<sub style="background:${color}">${n}</sub>` : ''}</span>`,
       iconSize: [ICON_SIZE, ICON_SIZE],
       iconAnchor: [ICON_SIZE / 2, ICON_SIZE / 2],
     });
@@ -602,7 +628,7 @@ export function initPlanner({ map, locate, sheetInsets, railLines, getBuses, foc
     iconLayer.clearLayers();
     if (!iconLegs.length) return;
     const view = map.getPixelBounds().pad(0.1);
-    for (const { path, glyph, color } of iconLegs) {
+    for (const { path, glyph, color, n } of iconLegs) {
       const pts = path.map((p) => map.project(p));
       let next = ICON_GAP / 2;
       let walked = 0;
@@ -615,7 +641,7 @@ export function initPlanner({ map, locate, sheetInsets, railLines, getBuses, foc
           const f = (next - walked) / len;
           const p = L.point(a.x + (b.x - a.x) * f, a.y + (b.y - a.y) * f);
           if (view.contains(p)) {
-            L.marker(map.unproject(p), { pane: 'planIcons', icon: trailIcon(glyph, color, angle), interactive: false, keyboard: false }).addTo(iconLayer);
+            L.marker(map.unproject(p), { pane: 'planIcons', icon: trailIcon(glyph, color, angle, n), interactive: false, keyboard: false }).addTo(iconLayer);
           }
           next += ICON_GAP;
         }
