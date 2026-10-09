@@ -711,6 +711,8 @@ export function initPlanner({ map, rotatingPane, locate, sheetInsets, railLines,
     text.style.stroke = outline; // white letters outlined in the leg's colour
     const tp = document.createElementNS(SVG_NS, 'textPath');
     tp.setAttribute('href', `#${guide.id}`);
+    // Older iOS Safari only follows the SVG 1.1 attribute.
+    tp.setAttributeNS('http://www.w3.org/1999/xlink', 'xlink:href', `#${guide.id}`);
     tp.setAttribute('startOffset', '50%'); // moved to the visible middle by fitLabels()
     tp.setAttribute('text-anchor', 'middle');
     tp.textContent = content;
@@ -779,7 +781,18 @@ export function initPlanner({ map, rotatingPane, locate, sheetInsets, railLines,
     refreshLabels();
   }
 
+  // The SVG covers the screen (plus a margin), placed in the pane's coordinates with a
+  // matching viewBox: Safari clips SVG content that overflows a tiny element.
+  const SVG_MARGIN = 200;
+  function sizeLabelSvg() {
+    const o = paneOffset(), size = map.getSize();
+    const x = -o.x - SVG_MARGIN, y = -o.y - SVG_MARGIN, w = size.x + 2 * SVG_MARGIN, h = size.y + 2 * SVG_MARGIN;
+    Object.assign(labelSvg.style, { left: `${x}px`, top: `${y}px`, width: `${w}px`, height: `${h}px` });
+    labelSvg.setAttribute('viewBox', `${x} ${y} ${w} ${h}`);
+  }
+
   function refreshLabels() {
+    sizeLabelSvg();
     for (const l of labelTexts) l.guide.setAttribute('d', guideD(l.latlngs, l.shift));
     labelPane.style.visibility = '';
     fitLabels();

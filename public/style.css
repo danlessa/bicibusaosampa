@@ -67,7 +67,7 @@ button { font: inherit; -webkit-tap-highlight-color: transparent; }
 #map.route-shown .leaflet-parking-pane,
 #map.route-shown .leaflet-stations-pane { opacity: 0.25; }
 
-.plan-label-layer { position: absolute; left: 0; top: 0; width: 1px; height: 1px; overflow: visible; pointer-events: none; }
+.plan-label-layer { position: absolute; overflow: visible; pointer-events: none; }
 /* Labels along each leg of a planned trip, following the line (SVG textPath): white
    letters outlined in the leg's colour (set inline), like the icons along the route. */
 .plan-leg-label {
