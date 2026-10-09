@@ -44,18 +44,20 @@ const map = L.map('map', { zoomControl: false, preferCanvas: true }).setView(DEF
 L.control.zoom({ position: 'topleft', zoomInTitle: 'Aproximar', zoomOutTitle: 'Afastar' }).addTo(map);
 
 // Base maps. OSM is desaturated in style.css so the line colours stand out; the
-// coloured relief comes from Câmera Topográfica (FABDEM, ~30 m, cycles 700–1200 m).
+// coloured relief is Pedal Hidrográfico's topo-hydrographic map of Greater SP
+// (rmsampa-v2: native tiles at zooms 8–16 inside its bounding box).
 const BASE_MAPS = {
   osm: L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
     maxZoom: 19,
     className: 'osm-tiles',
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
   }),
-  topo: L.tileLayer('https://cameratopo.pedalhidrografi.co/{z}/{x}/{y}.png?elevMin=700&elevMax=1200&slopeMax=0.16&slopeGamma=1&cycles=1&dem=fabdem&ss=512&v=13', {
+  topo: L.tileLayer('https://telhas.pedalhidrografi.co/rmsampa-v2/{z}/{x}/{y}.png', {
     maxZoom: 19,
-    maxNativeZoom: 17,
-    updateWhenIdle: true,
-    attribution: '<a href="https://cameratopo.pedalhidrografi.co/">Câmera Topográfica</a> · FABDEM',
+    minNativeZoom: 8,
+    maxNativeZoom: 16,
+    bounds: [[-24.207, -47.461], [-22.918, -45.703]],
+    attribution: 'Topografia colorida · <a href="https://amora.pedalhidrografi.co/">Pedal Hidrográfico</a>',
   }),
 };
 const BASE_LABELS = { osm: 'OpenStreetMap', topo: 'Topográfico colorido' };

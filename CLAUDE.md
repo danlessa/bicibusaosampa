@@ -28,7 +28,8 @@ append `window.__map = map;`.
 ## Layout
 
 - `public/`: the site, deployed as-is.
-  - `js/app.js`: map, base maps (OSM, coloured relief from Câmera Topográfica), layers
+  - `js/app.js`: map, base maps (OSM; "Topográfico colorido" = Pedal Hidrográfico's
+    `telhas.pedalhidrografi.co/rmsampa-v2`, zooms 8–16), layers
     sheet, polling (rail status 60 s, buses 20 s).
   - `js/ui.js`: the two sheets (☰ menu, ⧉ layers + legend; bottom sheets with a drag
     grip on phones, cards on wider screens), the toast, and the PWA update banner.
