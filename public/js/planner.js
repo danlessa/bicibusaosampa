@@ -57,9 +57,10 @@ export function initPlanner({ map, locate, sheetInsets, railLines, getBuses, foc
   const iconPane = map.createPane('planIcons');
   iconPane.style.zIndex = 642;
   iconPane.style.pointerEvents = 'none';
-  // Labels along the route sit above the route and its icons, below the A/B pins.
+  // Labels along the route sit above everything on the map (route, icons, A/B pins,
+  // tooltips at 650), only below open popups (700).
   const labelPane = map.createPane('planLabels');
-  labelPane.style.zIndex = 643;
+  labelPane.style.zIndex = 660;
   labelPane.style.pointerEvents = 'none';
   map.createPane('planPins').style.zIndex = 645;
   const renderer = L.svg({ pane: 'plan' });

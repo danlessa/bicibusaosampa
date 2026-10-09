@@ -29,7 +29,8 @@ append `window.__map = map;`.
 
 - `public/`: the site, deployed as-is.
   - `js/app.js`: map, base maps (OSM; "Topográfico colorido" = Pedal Hidrográfico's
-    `telhas.pedalhidrografi.co/rmsampa-v2`, zooms 8–16), layers
+    `telhas.pedalhidrografi.co/rmsampa-v2`, zooms 8–16) stacked with their own
+    on/off and opacity (default OSM 100 %, topo above it at 20 %), layers
     sheet, polling (rail status 60 s, buses 20 s).
   - `js/ui.js`: the two sheets (☰ menu, ⧉ layers + legend; bottom sheets with a drag
     grip on phones, cards on wider screens), the toast, and the PWA update banner.
@@ -74,8 +75,8 @@ append `window.__map = map;`.
       parking (`#map.route-shown`) and every bus/rail line it doesn't ride
       (`focusLines()` in app.js). Each leg is labelled with SVG text along the line
       itself (textPath on an invisible, west→east, screen-smoothed copy of the leg,
-      shifted sideways as a parallel curve; own pane `planLabels`, above the route
-      and its icons); a black "Total" label runs over the whole trip:
+      shifted sideways as a parallel curve; own pane `planLabels` at z 660, above
+      everything on the map except popups); a black "Total" label runs over the whole trip:
       time · kcal · distance above, the bus/rail line below; white letters outlined
       in the leg's colour. Each label
       sits on the straightest stretch of the leg's on-screen part (outside the sheet),

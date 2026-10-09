@@ -60,10 +60,19 @@ const BASE_MAPS = {
     attribution: 'Topografia colorida · <a href="https://amora.pedalhidrografi.co/">Pedal Hidrográfico</a>',
   }),
 };
+// Base maps stack (bottom to top, in this order), each with its own opacity.
 const BASE_LABELS = { osm: 'OpenStreetMap', topo: 'Topográfico colorido' };
-let baseKey = 'osm';
-try { if (localStorage.getItem('baseMap') === 'topo') baseKey = 'topo'; } catch {}
-BASE_MAPS[baseKey].addTo(map);
+const BASE_DEFAULTS = { osm: { on: true, opacity: 1 }, topo: { on: true, opacity: 0.2 } };
+let baseState = structuredClone(BASE_DEFAULTS);
+try {
+  const saved = JSON.parse(localStorage.getItem('baseMaps') ?? 'null');
+  if (saved) for (const key of Object.keys(baseState)) Object.assign(baseState[key], saved[key]);
+} catch {}
+const rememberBases = () => { try { localStorage.setItem('baseMaps', JSON.stringify(baseState)); } catch {} };
+Object.keys(BASE_MAPS).forEach((key, i) => {
+  BASE_MAPS[key].setZIndex(i + 1).setOpacity(baseState[key].opacity);
+  if (baseState[key].on) BASE_MAPS[key].addTo(map);
+});
 
 map.createPane('tracks').style.zIndex = 405;
 // Wider click tolerance so the thin rails are easy to tap.
@@ -125,22 +134,35 @@ function rememberLayers() {
 // The layers sheet (⧉): base map as radio buttons, overlays as switches. Adding a
 // layer fires 'overlayadd' like L.control.layers did, which lazy layers listen to.
 function buildLayerRows() {
-  const bases = Object.entries(BASE_LABELS).map(([key, label]) => `
-    <li><label><input type="radio" name="base-map" value="${key}" ${key === baseKey ? 'checked' : ''}><span>${label}</span></label></li>`);
+  // Top layer first, as it's drawn.
+  const bases = Object.entries(BASE_LABELS).reverse().map(([key, label]) => `
+    <li class="base-row"><label><input type="checkbox" data-base="${key}" ${baseState[key].on ? 'checked' : ''}><span>${label}</span></label>
+      <input type="range" min="0" max="100" step="5" value="${Math.round(baseState[key].opacity * 100)}" data-opacity="${key}" aria-label="Opacidade: ${label}">
+      <output>${Math.round(baseState[key].opacity * 100)}%</output></li>`);
   const overlays = TOGGLES.map(([key, label, layer]) => `
     <li><label><input type="checkbox" data-layer="${key}" ${map.hasLayer(layer) ? 'checked' : ''}><span>${label}</span></label></li>`);
   $('#layer-rows').innerHTML = `<li class="layer-group">Mapa</li>${bases.join('')}<li class="layer-group">No mapa</li>${overlays.join('')}`;
 }
 buildLayerRows();
+$('#layer-rows').addEventListener('input', (e) => {
+  const key = e.target.dataset.opacity;
+  if (!key) return;
+  baseState[key].opacity = Number(e.target.value) / 100;
+  BASE_MAPS[key].setOpacity(baseState[key].opacity);
+  e.target.nextElementSibling.textContent = `${e.target.value}%`;
+  rememberBases();
+});
 $('#layer-rows').addEventListener('change', (e) => {
   const input = e.target;
-  if (input.name === 'base-map') {
-    BASE_MAPS[baseKey].remove();
-    baseKey = input.value;
-    BASE_MAPS[baseKey].addTo(map).bringToBack();
-    try { localStorage.setItem('baseMap', baseKey); } catch {}
+  if (input.dataset.base) {
+    const key = input.dataset.base;
+    baseState[key].on = input.checked;
+    if (input.checked) BASE_MAPS[key].addTo(map);
+    else BASE_MAPS[key].remove();
+    rememberBases();
     return;
   }
+  if (input.dataset.opacity) return; // handled on 'input'
   const layer = TOGGLES.find(([key]) => key === input.dataset.layer)?.[2];
   if (!layer) return;
   if (input.checked) {
