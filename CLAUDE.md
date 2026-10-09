@@ -229,6 +229,16 @@ append `window.__map = map;`.
 - **Layer control:** toggles rail lines, stations, bus routes, live buses, bus stops
   and bike parking.
 
+## Performance (phones)
+
+- Panning and zooming cost grows with the number of DOM markers, so marker layers are
+  culled to the view: live buses (only from zoom 12, `syncBusMarkers()`), bus stops
+  and bike parking are added/removed on `moveend`. Keep new marker layers culled too.
+- No CSS `filter` (e.g. `drop-shadow`) or blurred `box-shadow` on map icons: phones
+  repaint each one on every frame. Use outlines drawn in the SVG instead.
+- Popups that depend on live data are built when opened (`bindPopup(() => …)`), not on
+  every refresh.
+
 ## Style
 
 - UI text, the README and data-file comments are in Portuguese. Code comments are in

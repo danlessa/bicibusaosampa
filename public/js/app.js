@@ -595,35 +595,64 @@ function renderBuses() {
   $('#bus-list').innerHTML = expected.map((c) => lineItem(c, counts.get(c))).join('');
 }
 
+// Only the buses in view get a marker (hundreds of DOM icons make panning and zooming
+// slow on phones), and none when zoomed out past BUS_MIN_ZOOM. Popups are built when
+// opened, not on every refresh.
+const BUS_MIN_ZOOM = 12;
+let busStatusNow = null; // bike status of buses at the last refresh
+const busByPrefix = new Map(); // prefix -> latest vehicle
+const busHeadings = new Map(); // prefix -> angle (math convention) or null
+
 function renderBusMarkers(s) {
-  const seen = new Set();
+  busStatusNow = s;
+  busByPrefix.clear();
   for (const bus of state.buses) {
-    seen.add(bus.prefix);
-    const icon = busIcon(s.status, !bus.expected);
-    let marker = busMarkers.get(bus.prefix);
-    if (!marker) {
-      marker = L.marker([bus.lat, bus.lon], { keyboard: false, icon })
-        .bindPopup('')
-        .addTo(busLayer);
-      busMarkers.set(bus.prefix, marker);
-    }
-    marker.setLatLng([bus.lat, bus.lon]).setPopupContent(busPopup(bus, s));
-    if (marker.options.icon !== icon) marker.setIcon(icon);
-    marker.setOpacity(busOpacity(bus.line));
-    const svg = marker.getElement()?.querySelector('.bus-icon');
-    if (svg) {
-      const heading = busHeading(bus);
-      svg.dataset.heading = heading ?? '';
-      svg.style.transform = iconTransform(heading == null ? null : heading - map.getBearing());
+    busByPrefix.set(bus.prefix, bus);
+    busHeadings.set(bus.prefix, busHeading(bus)); // tracks every bus, shown or not
+  }
+  syncBusMarkers();
+}
+
+function syncBusMarkers() {
+  const s = busStatusNow;
+  if (!s) return;
+  const view = map.hasLayer(busLayer) && map.getZoom() >= BUS_MIN_ZOOM ? map.getBounds().pad(0.2) : null;
+  const shown = new Set();
+  if (view) {
+    const bearing = map.getBearing();
+    for (const bus of busByPrefix.values()) {
+      if (!view.contains([bus.lat, bus.lon])) continue;
+      shown.add(bus.prefix);
+      const icon = busIcon(s.status, !bus.expected);
+      let marker = busMarkers.get(bus.prefix);
+      if (!marker) {
+        const prefix = bus.prefix;
+        marker = L.marker([bus.lat, bus.lon], { keyboard: false, icon })
+          .bindPopup(() => busPopup(busByPrefix.get(prefix) ?? bus, busStatusNow))
+          .addTo(busLayer);
+        busMarkers.set(prefix, marker);
+      } else {
+        marker.setLatLng([bus.lat, bus.lon]);
+        if (marker.isPopupOpen()) marker.getPopup().update();
+      }
+      if (marker.options.icon !== icon) marker.setIcon(icon);
+      marker.setOpacity(busOpacity(bus.line));
+      const svg = marker.getElement()?.querySelector('.bus-icon');
+      if (svg) {
+        const heading = busHeadings.get(bus.prefix);
+        svg.dataset.heading = heading ?? '';
+        svg.style.transform = iconTransform(heading == null ? null : heading - bearing);
+      }
     }
   }
   for (const [prefix, marker] of busMarkers) {
-    if (!seen.has(prefix)) {
+    if (!shown.has(prefix)) {
       marker.remove();
       busMarkers.delete(prefix);
     }
   }
 }
+map.on('moveend overlayadd', syncBusMarkers);
 
 $('#bus-section').addEventListener('click', async (e) => {
   const code = e.target.closest('li[data-code]')?.dataset.code;
@@ -631,8 +660,7 @@ $('#bus-section').addEventListener('click', async (e) => {
   if (!line) return;
   if (line.unusual) await loadUnusualRoute(line);
   let bounds = line.bounds;
-  const markers = state.buses.filter((b) => b.line === code).map((b) => busMarkers.get(b.prefix)).filter(Boolean);
-  for (const m of markers) bounds = bounds ? bounds.extend(m.getLatLng()) : L.latLngBounds([m.getLatLng()]);
+  for (const b of state.buses.filter((x) => x.line === code)) bounds = bounds ? bounds.extend([b.lat, b.lon]) : L.latLngBounds([[b.lat, b.lon]]);
   if (bounds) map.fitBounds(bounds, { padding: [40, 40], maxZoom: 15 });
   for (const r of line.routes) r.setStyle({ weight: routeWeight(map.getZoom()) + 3 });
   setTimeout(() => line.routes.forEach((r) => r.setStyle({ weight: routeWeight(map.getZoom()) })), 2500);
@@ -710,15 +738,27 @@ function loadParking() {
         const [lon, lat] = geometry.coordinates;
         const marker = L.marker([lat, lon], { pane: 'parking', keyboard: false, icon: parkingIcon(props.kind, 'livre') })
           .bindTooltip(esc(props.name ?? (props.kind === 'bicicletario' ? 'Bicicletário' : 'Paraciclo')), { direction: 'top', offset: [0, -10] })
-          .bindPopup(() => parkingPopup(props))
-          .addTo(props.kind === 'bicicletario' ? bicicletarioLayer : paracicloLayer);
-        parkingMarkers.push({ marker, props });
+          .bindPopup(() => parkingPopup(props));
+        parkingMarkers.push({ marker, props, layer: props.kind === 'bicicletario' ? bicicletarioLayer : paracicloLayer });
       }
       renderParking();
+      showParkingInView();
     })
     .catch((err) => console.warn('bike parking unavailable', err));
 }
 map.on('zoomend overlayadd', loadParking);
+
+// Like bus stops, only the parking spots in view are on the map.
+function showParkingInView() {
+  if (!parkingMarkers.length || map.getZoom() < PARKING_MIN_ZOOM) return;
+  const view = map.getBounds().pad(0.25);
+  for (const { marker, layer } of parkingMarkers) {
+    const inView = view.contains(marker.getLatLng());
+    if (inView && !layer.hasLayer(marker)) layer.addLayer(marker);
+    else if (!inView && layer.hasLayer(marker)) layer.removeLayer(marker);
+  }
+}
+map.on('moveend', showParkingInView);
 
 /** Recolours the parking markers that opened or closed since the last call. */
 function renderParking() {
