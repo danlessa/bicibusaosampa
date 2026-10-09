@@ -56,18 +56,18 @@
       <section id="plan-section">
         <details id="plan-details" open>
           <summary><h2>Planejar viagem</h2></summary>
+          <fieldset class="plan-modes plan-profiles">
+            <legend class="sr-only">Como ir</legend>
+            <label><input type="radio" name="plan-profile" value="bike" checked><span>Intermodal<br>+ Bicicleta<br>+ Estacionar</span></label>
+            <label><input type="radio" name="plan-profile" value="carry"><span>Intermodal<br>+ Bicicleta</span></label>
+            <label><input type="radio" name="plan-profile" value="walk"><span>Intermodal</span></label>
+          </fieldset>
           <ol id="plan-stops" class="plan-stops"></ol>
           <div class="plan-actions">
             <button type="button" id="plan-add-stop">+ Parada</button>
             <button type="button" id="plan-swap" aria-label="Inverter origem e destino">⇅ Inverter</button>
             <button type="button" id="plan-clear">Limpar</button>
           </div>
-          <fieldset class="plan-modes plan-profiles">
-            <legend class="sr-only">Como ir</legend>
-            <label><input type="radio" name="plan-profile" value="bike" checked><span>🚲 Bicicleta + Intermodal + Bicicletários</span></label>
-            <label><input type="radio" name="plan-profile" value="carry"><span>🚲 Bicicleta + Intermodal</span></label>
-            <label><input type="radio" name="plan-profile" value="walk"><span>🚶 A pé</span></label>
-          </fieldset>
           <fieldset class="plan-modes plan-optimize">
             <legend class="sr-only">Prioridade</legend>
             <label><input type="radio" name="plan-optimize" value="time" checked><span>⏱️ Mais rápido</span></label>

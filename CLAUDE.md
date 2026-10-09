@@ -69,8 +69,18 @@ append `window.__map = map;`.
       on the empty map (fills the first empty slot; with all set, the tap becomes the new
       destination and the old one a stop). Taps on buses, stations and lines keep their
       popups. Pins are draggable; their popup removes them. With stops, legs are planned
-      one after another (best option each). A shown route fades every other layer
-      (`#map.route-shown`). The worker downloads the network on the first point or
+      one after another (best option each). A shown route fades stops, stations and
+      parking (`#map.route-shown`) and every bus/rail line it doesn't ride
+      (`focusLines()` in app.js). Each leg is labelled with SVG text along the line
+      itself (textPath on an invisible, west→east, screen-smoothed copy of the leg):
+      time · kcal · distance above, the bus/rail line below; white letters outlined
+      in the leg's colour. Each label
+      sits on the straightest stretch of the leg's on-screen part (outside the sheet),
+      shrinks to fit it (down to 7 px, then fades), and glides to its new spot when
+      the view changes.
+    - The mode selector (three squares under the section title) maps to profiles:
+      "Intermodal + Bicicleta + Estacionar" = `bike`, "Intermodal + Bicicleta" =
+      `carry`, "Intermodal" = `walk`. The worker downloads the network on the first point or
       search, not on page load.
   - `data/routing/transit.json`: **generated** (`npm run build:data -- routing`) from the
     GTFS: stops and per line-direction patterns (stop offsets + departures).

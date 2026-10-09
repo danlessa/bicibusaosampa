@@ -35,7 +35,7 @@ function recall(key) {
  * covered by the menu sheets; railLines: Map ref → rail-lines.json line;
  * getBuses(): live /api/buses vehicles, or null when they couldn't be loaded.
  */
-export function initPlanner({ map, locate, sheetInsets, railLines, getBuses }) {
+export function initPlanner({ map, locate, sheetInsets, railLines, getBuses, focusLines }) {
   const details = $('#plan-details');
   const status = $('#plan-status');
   const results = $('#plan-results');
@@ -230,6 +230,9 @@ export function initPlanner({ map, locate, sheetInsets, railLines, getBuses }) {
     routeLayer.clearLayers();
     iconLegs = [];
     iconLayer.clearLayers();
+    labelLegs = [];
+    clearLabels();
+    focusLines(null);
     results.innerHTML = '';
     status.textContent = '';
     map.getContainer().classList.remove('route-shown');
@@ -515,8 +518,15 @@ export function initPlanner({ map, locate, sheetInsets, railLines, getBuses }) {
     routeLayer.clearLayers();
     iconLegs = [];
     const j = journeys[selected];
-    // With a route on the map, everything else fades so the route stands out.
+    // With a route on the map, everything else fades so the route stands out, except
+    // the bus and rail lines the trip rides on.
     map.getContainer().classList.toggle('route-shown', !!j);
+    labelLegs = [];
+    focusLines(j ? {
+      buses: new Set(j.legs.filter((l) => l.kind === 'ride' && l.mode === 'bus').map((l) => l.route)),
+      rails: new Set(j.legs.filter((l) => l.kind === 'ride' && l.mode !== 'bus').map((l) => String(l.rail))),
+    } : null);
+    clearLabels();
     if (!j) return;
     const bounds = L.latLngBounds([]);
     for (const leg of j.legs) {
@@ -543,6 +553,14 @@ export function initPlanner({ map, locate, sheetInsets, railLines, getBuses }) {
         L.polyline(path, { renderer, color, weight: 4, dashArray: '1 7', lineCap: 'round' }).addTo(routeLayer);
       }
       for (const p of path) bounds.extend(p);
+      if (leg.interchange) continue;
+      const meters = leg.meters || pathLength(path);
+      labelLegs.push({
+        path,
+        info: `${minutes(leg.arrive - leg.depart)} · ${kcal(leg.kcal)} · ${km(meters)}`,
+        line: leg.kind === 'ride' ? String(leg.mode === 'bus' ? leg.route : `Linha ${leg.rail}`) : null,
+        color,
+      });
     }
     if (!bounds.isValid()) return;
     for (const p of stops) if (p) bounds.extend([p.lat, p.lon]);
@@ -554,6 +572,7 @@ export function initPlanner({ map, locate, sheetInsets, railLines, getBuses }) {
       maxZoom: 16,
     });
     placeIcons();
+    placeLabels();
   }
 
   // ---------------------------------------------------------------- icon trail
@@ -605,4 +624,192 @@ export function initPlanner({ map, locate, sheetInsets, railLines, getBuses }) {
     }
   }
   map.on('zoomend moveend', placeIcons);
+
+  // ---------------------------------------------------------------- leg labels
+
+  // Each leg is labelled with text that follows the line itself (SVG textPath): time,
+  // energy and distance above it, the bus or rail line below (rides only). The text
+  // runs along an invisible copy of the leg, turned west→east so it never reads upside
+  // down. A label longer than its leg on screen gets a smaller font (fitLabels()).
+  const SVG_NS = 'http://www.w3.org/2000/svg';
+  let labelLegs = []; // { path, info, line, color } of the selected journey
+  let labelTexts = []; // [{ guide: SVGPathElement, texts: [SVGTextElement] }]
+
+  function pathLength(path) {
+    let m = 0;
+    for (let i = 1; i < path.length; i++) m += map.distance(path[i - 1], path[i]);
+    return m;
+  }
+
+  function clearLabels() {
+    for (const { texts } of labelTexts) for (const t of texts) t.remove();
+    labelTexts = [];
+  }
+
+  function textOn(guide, content, dy, className, outline) {
+    const text = document.createElementNS(SVG_NS, 'text');
+    text.setAttribute('class', className);
+    text.setAttribute('dy', String(dy));
+    text.style.stroke = outline; // white letters outlined in the leg's colour
+    const tp = document.createElementNS(SVG_NS, 'textPath');
+    tp.setAttribute('href', `#${guide.id}`);
+    tp.setAttribute('startOffset', '50%'); // moved to the visible middle by fitLabels()
+    tp.setAttribute('text-anchor', 'middle');
+    tp.textContent = content;
+    text.append(tp);
+    guide.parentNode.append(text);
+    return text;
+  }
+
+  // The guide is simplified on screen with a tolerance of 15% of the leg's size there
+  // (zigzags through the street grid become one gentle curve, at any zoom) and then
+  // rounded with four Chaikin passes, so the text bends instead of folding at corners.
+  const chaikin = (pts) => {
+    if (pts.length < 3) return pts;
+    const out = [pts[0]];
+    for (let i = 0; i + 1 < pts.length; i++) {
+      const a = pts[i], b = pts[i + 1];
+      out.push(a.multiplyBy(0.75).add(b.multiplyBy(0.25)), a.multiplyBy(0.25).add(b.multiplyBy(0.75)));
+    }
+    out.push(pts[pts.length - 1]);
+    return out;
+  };
+  const SmoothGuide = L.Polyline.extend({
+    _update() {
+      if (!this._map) return;
+      this._clipPoints();
+      const size = this._pxBounds?.getSize();
+      this.options.smoothFactor = size ? Math.max(8, Math.hypot(size.x, size.y) * 0.15) : 8;
+      this._simplifyPoints();
+      this._parts = this._parts.map((part) => chaikin(chaikin(chaikin(chaikin(part)))));
+      this._updatePath();
+    },
+  });
+
+  let guideId = 0;
+  function placeLabels() {
+    clearLabels();
+    for (const { path, info, line, color } of labelLegs) {
+      const westToEast = path[path.length - 1][1] >= path[0][1] ? path : [...path].reverse();
+      const guide = new SmoothGuide(westToEast, { renderer, opacity: 0, weight: 1, interactive: false, noClip: true }).addTo(routeLayer);
+      const el = guide.getElement();
+      if (!el) continue;
+      el.id = `plan-guide-${++guideId}`;
+      // Above the line, clear of the icon trail; the line's name below it. Their size
+      // is set by fitLabels().
+      const texts = [textOn(el, info, -17, 'plan-leg-label', color)];
+      if (line) texts.push(textOn(el, line, 28, 'plan-leg-label line', color));
+      labelTexts.push({ guide: el, texts });
+    }
+    requestAnimationFrame(fitLabels);
+  }
+
+  // Each label sits on the straightest stretch of the part of its leg that's on screen
+  // (not under the sheet or the map buttons; letters on the outside of a sharp bend
+  // would spread apart), shrinking to fit that part down to MIN_LABEL_PX;
+  // below that it fades out. When the view changes, labels glide along the line to
+  // their new spot and size instead of jumping. Tight corners may squeeze the letters.
+  const MIN_LABEL_PX = 7;
+  const GLIDE_MS = 300;
+  const SAMPLE_PX = 6;
+  const state = new WeakMap(); // text -> { frac, size, raf }
+
+  /** The view in the guides' coordinates (layer points), minus what covers the map. */
+  function visibleRect() {
+    const size = map.getSize();
+    const inset = sheetInsets();
+    const a = map.containerPointToLayerPoint([inset.left + 12, 12]);
+    const b = map.containerPointToLayerPoint([size.x - 64, size.y - inset.bottom - 12]);
+    return L.bounds(a, b);
+  }
+
+  /**
+   * Where along the guide (px) to centre a label `width` px long inside `stretch`: the
+   * spot where the line turns least under the label, ties going to the middle.
+   */
+  function straightestCentre(guide, stretch, width) {
+    const from = stretch.from + width / 2, to = stretch.to - width / 2;
+    const middle = (stretch.from + stretch.to) / 2;
+    if (to <= from) return middle;
+    const angles = [];
+    for (let d = stretch.from; d <= stretch.to; d += SAMPLE_PX) {
+      const a = guide.getPointAtLength(d), b = guide.getPointAtLength(Math.min(stretch.to, d + SAMPLE_PX));
+      angles.push(Math.atan2(b.y - a.y, b.x - a.x));
+    }
+    const turnAt = (i) => {
+      let t = Math.abs(angles[i] - angles[i - 1]);
+      return t > Math.PI ? 2 * Math.PI - t : t;
+    };
+    let best = middle, bestScore = Infinity;
+    const half = Math.round(width / 2 / SAMPLE_PX);
+    for (let c = from; c <= to; c += SAMPLE_PX) {
+      const ci = Math.round((c - stretch.from) / SAMPLE_PX);
+      let turn = 0;
+      for (let i = Math.max(1, ci - half); i <= Math.min(angles.length - 1, ci + half); i++) turn += turnAt(i);
+      const score = turn + Math.abs(c - middle) / 2000; // radians, plus a nudge to the middle
+      if (score < bestScore) { bestScore = score; best = c; }
+    }
+    return best;
+  }
+
+  /** Longest on-screen stretch of the guide: { from, to } in px along it, or null. */
+  function visibleStretch(guide, total, rect) {
+    let best = null, runStart = null, last = 0;
+    for (let d = 0; d <= total; d += SAMPLE_PX) {
+      const p = guide.getPointAtLength(d);
+      if (rect.contains([p.x, p.y])) {
+        runStart ??= d;
+        last = d;
+      } else if (runStart != null) {
+        if (!best || last - runStart > best.to - best.from) best = { from: runStart, to: last };
+        runStart = null;
+      }
+    }
+    if (runStart != null && (!best || last - runStart > best.to - best.from)) best = { from: runStart, to: last };
+    return best;
+  }
+
+  function glide(t, target, total) {
+    const st = state.get(t) ?? { frac: target.frac, size: target.size };
+    cancelAnimationFrame(st.raf);
+    const from = { frac: st.frac, size: st.size }, t0 = performance.now();
+    const apply = (frac, size) => {
+      st.frac = frac; st.size = size;
+      t.firstChild.setAttribute('startOffset', String(frac * total));
+      t.style.fontSize = `${size.toFixed(2)}px`;
+      t.style.strokeWidth = `${Math.max(2, (4 * size) / target.base).toFixed(2)}px`;
+    };
+    const step = (now) => {
+      const k = Math.min(1, (now - t0) / GLIDE_MS), e = 1 - (1 - k) ** 3;
+      apply(from.frac + (target.frac - from.frac) * e, from.size + (target.size - from.size) * e);
+      if (k < 1) st.raf = requestAnimationFrame(step);
+    };
+    state.set(t, st);
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches) apply(target.frac, target.size);
+    else st.raf = requestAnimationFrame(step);
+  }
+
+  function fitLabels() {
+    const rect = visibleRect();
+    for (const { guide, texts } of labelTexts) {
+      const total = guide.getTotalLength?.() ?? 0;
+      const stretch = total ? visibleStretch(guide, total, rect) : null;
+      for (const t of texts) {
+        const base = t.classList.contains('line') ? 13.5 : 12.5;
+        if (!stretch) { t.style.opacity = '0'; continue; }
+        // Text length at the base size (getComputedTextLength scales with the font).
+        const now = parseFloat(t.style.fontSize) || base;
+        const length = (t.getComputedTextLength() * base) / now;
+        const room = stretch.to - stretch.from - 16;
+        const size = Math.min(base, (base * room) / length);
+        if (size < MIN_LABEL_PX) { t.style.opacity = '0'; continue; }
+        t.style.opacity = '1';
+        const centre = straightestCentre(guide, stretch, (length * size) / base + 16);
+        glide(t, { frac: centre / total, size, base }, total);
+      }
+    }
+  }
+
+  // After Leaflet has redrawn the guides at the new zoom.
+  map.on('moveend', () => requestAnimationFrame(fitLabels));
 }

@@ -29,6 +29,13 @@ const busColor = (status, unusual) => BUS_COLORS[status][unusual ? 'unusual' : '
 const STATUS_LABELS = { ok: 'Bici liberada', wait: 'Fora do horário da bici', closed: 'Fechada' };
 
 const $ = (sel) => document.querySelector(sel);
+
+// While a planned trip is on the map, the bus and rail lines it doesn't use fade out
+// (stops, stations and parking fade as a whole in style.css). null = nothing planned.
+let focus = null; // { buses: Set(code), rails: Set(ref) }
+const FADED = 0.2;
+const railOpacity = (line) => (focus && !focus.rails.has(String(line.ref)) ? FADED : 1);
+const busOpacity = (code) => (focus && !focus.buses.has(code) ? FADED : 1);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 
 // ---------------------------------------------------------------- map
@@ -212,7 +219,7 @@ function addRailGeometry(railGeo) {
       if (!line) continue;
       const latlngs = f.geometry.coordinates.map((part) => part.map(([lon, lat]) => [lat, lon]));
       // Thin continuous line in the bike status colour (set in renderRail).
-      const track = L.polyline(latlngs, { renderer: trackRenderer, weight: 2, opacity: 1, bubblingMouseEvents: false });
+      const track = L.polyline(latlngs, { renderer: trackRenderer, weight: 2, opacity: railOpacity(line), bubblingMouseEvents: false });
       track.on('click', (e) => L.popup().setLatLng(e.latlng).setContent(linePopup(line)).openOn(map));
       trackLayer.addLayer(track);
       line.tracks.push(track);
@@ -316,7 +323,7 @@ function addRoute(line, sentido, coordinates, lane, headsign) {
   const route = new OffsetPolyline(latlngs, {
     renderer: busRouteRenderer,
     weight: routeWeight(map.getZoom()),
-    opacity: 1,
+    opacity: busOpacity(line.code),
     offset: (zoom) => laneOffset(lane, zoom),
     color: lineColor(line),
   }).bindTooltip(`${esc(line.code)}${headsign ? ` → ${esc(headsign)}` : ''}`, { sticky: true });
@@ -554,6 +561,7 @@ function renderBusMarkers(s) {
     }
     marker.setLatLng([bus.lat, bus.lon]).setPopupContent(busPopup(bus, s));
     if (marker.options.icon !== icon) marker.setIcon(icon);
+    marker.setOpacity(busOpacity(bus.line));
     const svg = marker.getElement()?.querySelector('.bus-icon');
     if (svg) svg.style.transform = iconTransform(busHeading(bus));
   }
@@ -684,8 +692,16 @@ initSheets();
 initUpdates();
 const locate = initLocate(map);
 
+function focusLines(used) {
+  focus = used;
+  for (const line of lines) for (const t of line.tracks) t.setStyle({ opacity: railOpacity(line) });
+  for (const line of busLineByCode.values()) for (const r of line.routes) r.setStyle({ opacity: busOpacity(line.code) });
+  for (const bus of state.buses) busMarkers.get(bus.prefix)?.setOpacity(busOpacity(bus.line));
+}
+
 initPlanner({
   map,
+  focusLines,
   locate,
   sheetInsets,
   railLines: lineByRef,
