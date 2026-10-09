@@ -446,7 +446,23 @@ footer a { color: var(--accent); }
 .plan-modes input:focus-visible + span { outline: 2px solid var(--accent); }
 .plan-optimize { margin-top: 0; }
 
-.plan-more summary { font-size: 14px; }
+/* "Mais opções" looks like a button; the chevron turns when it's open. */
+#panel .plan-more > summary.plan-more-btn {
+  list-style: none;
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin: 8px 0 4px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--fg);
+  font-size: 14px;
+}
+.plan-more > summary.plan-more-btn::-webkit-details-marker { display: none; }
+.plan-more > summary.plan-more-btn::after { content: "▾"; color: var(--muted); transition: transform 0.2s; }
+.plan-more[open] > summary.plan-more-btn::after { transform: rotate(180deg); }
+.plan-more[open] > summary.plan-more-btn { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, transparent); }
 .plan-field { display: flex; gap: 8px; align-items: center; margin: 8px 0; font-size: 14px; color: var(--muted); }
 .plan-field[hidden] { display: none; }
 .plan-field select, .plan-field input {
