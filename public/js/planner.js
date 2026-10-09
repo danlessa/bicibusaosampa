@@ -43,7 +43,7 @@ export function initPlanner({ map, rotatingPane, locate, sheetInsets, railLines,
 
   const power = $('#plan-power');
   power.innerHTML = PACES.map(([key, name]) =>
-    `<option value="${key}">${name}: ~${Math.round(flatSpeed(POWER_LEVELS[key]) * 3.6)} km/h no plano</option>`).join('');
+    `<option value="${key}">${name}: ${POWER_LEVELS[key]} W, ~${Math.round(flatSpeed(POWER_LEVELS[key]) * 3.6)} km/h no plano</option>`).join('');
   power.value = recall('planPower') ?? 'endorfinado';
   const savedProfile = recall('planProfile');
   if (savedProfile) for (const r of document.querySelectorAll('input[name="plan-profile"]')) r.checked = r.value === savedProfile;
