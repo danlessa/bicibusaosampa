@@ -28,7 +28,21 @@ append `window.__map = map;`.
 ## Layout
 
 - `public/`: the site, deployed as-is.
-  - `js/app.js`: map, layers, panel, polling (rail status 60 s, buses 20 s).
+  - `js/app.js`: map, base maps (OSM, coloured relief from Câmera Topográfica), layers
+    sheet, polling (rail status 60 s, buses 20 s).
+  - `js/ui.js`: the two sheets (☰ menu, ⧉ layers + legend; bottom sheets with a drag
+    grip on phones, cards on wider screens), the toast, and the PWA update banner.
+  - `js/locate.js`: locate button and blue dot. Opens on Terminal Bandeira at zoom 16;
+    follows the user from the start only if location permission was already granted.
+  - `js/geocode.js`: place search and reverse lookup with Photon (bbox Greater SP).
+  - `sw-template.js` + `functions/sw.js.js`: the service worker, served at `/sw.js`
+    with `__VERSION__` = deployed commit, so each deploy installs a new worker and the
+    page shows "Nova versão · toque para atualizar". Shell cached per version (fetched
+    with `?v=`, which also dodges the zone's 4 h edge cache); `/data/routing/*` cached
+    across versions and re-checked daily. Locally the version is `dev`: no caching.
+    Don't put the worker code in a Function module: the bundler injects `__name()`
+    helpers that break it in the browser.
+  - `manifest.webmanifest`, `icons/icon*.png|svg`: PWA install.
   - Pure modules, imported by the tests too:
     - `time.js`: São Paulo time and holidays.
     - `schedule.js`: time-window engine.
@@ -50,9 +64,14 @@ append `window.__map = map;`.
       without a bike lane or track 5× in route choice; reported times stay real.
     - `live-trips.js`: live 23m buses from `/api/buses` turned into planner trips on
       the line they're actually running.
-    - `planner.js` + `planner-worker.js`: the "Planejar viagem" panel section. The
-      worker downloads the network the first time the section opens and runs the
-      searches. While picking a point, map clicks are caught before any layer gets them.
+    - `planner.js` + `planner-worker.js`: the "Planejar viagem" section (open by
+      default). Points: origin, stops, destination, each a search box (Photon) or a tap
+      on the empty map (fills the first empty slot; with all set, the tap becomes the new
+      destination and the old one a stop). Taps on buses, stations and lines keep their
+      popups. Pins are draggable; their popup removes them. With stops, legs are planned
+      one after another (best option each). A shown route fades every other layer
+      (`#map.route-shown`). The worker downloads the network on the first point or
+      search, not on page load.
   - `data/routing/transit.json`: **generated** (`npm run build:data -- routing`) from the
     GTFS: stops and per line-direction patterns (stop offsets + departures).
   - `data/routing/streets.bin`: **generated on request only** (`npm run build:data --

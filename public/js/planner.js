@@ -1,8 +1,10 @@
 // Trip planner panel: origin and destination on the map, mode, pace and departure time,
 // and the journeys from planner-worker.js, listed in the panel and drawn on the map.
 
+import { placeName, searchPlaces } from './geocode.js';
 import { ACCESS } from './parking.js';
 import { balance, DEFAULT_TIME_WEIGHT, flatSpeed, POWER_LEVELS, TIME_WEIGHTS } from './raptor.js';
+import { spParts } from './time.js';
 
 const PACES = [
   ['suave', 'Suave'],
@@ -10,6 +12,7 @@ const PACES = [
   ['intenso', 'Intenso'],
   ['competicao', 'Competição'],
 ];
+const GPS_ICON = '<svg viewBox="0 0 512 512" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M445 4 29 195c-48 23-32 93 19 93h176v176c0 51 70 67 93 19L508 67c16-38-25-79-63-63z"/></svg>';
 const COLORS = { walk: '#57534e', bike: '#dc2626', busBike: '#16a34a', bus: '#1c1917' };
 const MODE_ICON = { walk: '🚶', bike: '🚲', park: '🅿️', station: '🚉', bus: '🚌', metro: '🚇', train: '🚆' };
 
@@ -28,19 +31,19 @@ function recall(key) {
 }
 
 /**
- * map: the Leaflet map; railLines: Map ref → rail-lines.json line;
+ * map: the Leaflet map; locate: locate.js handle (position()); sheetInsets(): screen
+ * covered by the menu sheets; railLines: Map ref → rail-lines.json line;
  * getBuses(): live /api/buses vehicles, or null when they couldn't be loaded.
  */
-export function initPlanner({ map, railLines, getBuses }) {
+export function initPlanner({ map, locate, sheetInsets, railLines, getBuses }) {
   const details = $('#plan-details');
   const status = $('#plan-status');
   const results = $('#plan-results');
-  const pointButtons = { from: $('#plan-from'), to: $('#plan-to') };
-  const pointLabels = { from: 'Origem', to: 'Destino' };
+  const stopsList = $('#plan-stops');
 
   const power = $('#plan-power');
   power.innerHTML = PACES.map(([key, name]) =>
-    `<option value="${key}">${name}: ${POWER_LEVELS[key]} W, ~${Math.round(flatSpeed(POWER_LEVELS[key]) * 3.6)} km/h no plano</option>`).join('');
+    `<option value="${key}">${name}: ~${Math.round(flatSpeed(POWER_LEVELS[key]) * 3.6)} km/h no plano</option>`).join('');
   power.value = recall('planPower') ?? 'endorfinado';
   const savedProfile = recall('planProfile');
   if (savedProfile) for (const r of document.querySelectorAll('input[name="plan-profile"]')) r.checked = r.value === savedProfile;
@@ -59,9 +62,6 @@ export function initPlanner({ map, railLines, getBuses }) {
   const routeLayer = L.layerGroup().addTo(map);
   const iconLayer = L.layerGroup().addTo(map);
   let iconLegs = []; // { path, glyph, color } of the selected journey
-  const points = { from: null, to: null };
-  const markers = { from: null, to: null };
-  let picking = null;
   let journeys = [];
   let candidates = null; // all of "Balanceado"'s options, re-ranked when its weight changes
   let selected = 0;
@@ -92,116 +92,229 @@ export function initPlanner({ map, railLines, getBuses }) {
     });
   }
 
+  // The network (~18 MB, cached by the service worker afterwards) is only downloaded
+  // once someone starts planning, not merely because the section is open.
   let loaded = false;
-  details.addEventListener('toggle', () => {
-    if (details.open && !loaded) {
-      ask({ kind: 'load' }).then((r) => { loaded = r.kind === 'loaded'; });
-    }
-  });
+  let loading = null;
+  function ensureLoaded() {
+    loading ??= ask({ kind: 'load' }).then((r) => { loaded = r.kind === 'loaded'; if (!loaded) loading = null; });
+    return loading;
+  }
 
   // ---------------------------------------------------------------- points
 
-  const pinIcon = (letter) => L.divIcon({
+  // Origin, stops in between, destination: [{ lat, lon, label } | null], at least two.
+  // A tap on the map fills the first empty slot; with all filled it becomes the new
+  // destination and the previous destination turns into a stop.
+  let stops = [null, null];
+  let markers = [];
+  const ROLE = { from: 'Origem', via: 'Parada', to: 'Destino' };
+  const role = (i) => (i === 0 ? 'from' : i === stops.length - 1 ? 'to' : 'via');
+  const pinText = (i) => ({ from: 'A', to: 'B' }[role(i)] ?? String(i));
+
+  const pinIcon = (i) => L.divIcon({
     className: 'plan-pin',
-    html: `<span class="pin ${letter === 'A' ? 'a' : 'b'}">${letter}</span>`,
-    iconSize: [26, 26],
-    iconAnchor: [13, 13],
+    html: `<span class="pin ${role(i)}">${pinText(i)}</span>`,
+    iconSize: [40, 40],
+    iconAnchor: [20, 20],
+    popupAnchor: [0, -14],
   });
 
-  function setPoint(which, latlng) {
-    points[which] = { lat: latlng.lat, lon: latlng.lng };
-    if (!markers[which]) {
-      markers[which] = L.marker(latlng, { pane: 'planPins', icon: pinIcon(which === 'from' ? 'A' : 'B'), draggable: true, keyboard: false })
-        .on('dragend', (e) => setPoint(which, e.target.getLatLng()))
+  let quietUntil = 0; // swallow the ghost map click after a search pick, drag or popup close
+  const quiet = (ms) => { quietUntil = Date.now() + ms; };
+
+  function syncMarkers() {
+    for (const m of markers) m?.remove();
+    markers = stops.map((p, i) => {
+      if (!p) return null;
+      const marker = L.marker([p.lat, p.lon], { pane: 'planPins', icon: pinIcon(i), draggable: true, keyboard: false, autoPan: true })
+        .on('dragend', (e) => { quiet(400); const ll = e.target.getLatLng(); setStop(i, { lat: ll.lat, lon: ll.lng }); })
         .addTo(map);
-    } else {
-      markers[which].setLatLng(latlng);
+      const box = document.createElement('div');
+      box.className = 'plan-menu';
+      box.innerHTML = `<b>${esc(ROLE[role(i)])}</b><button type="button">Remover</button>`;
+      box.querySelector('button').addEventListener('click', () => { map.closePopup(); quiet(400); removeStop(i); });
+      marker.bindPopup(box, { closeButton: false });
+      return marker;
+    });
+  }
+
+  function renderStops() {
+    stopsList.innerHTML = stops.map((p, i) => `
+      <li class="plan-stop" data-i="${i}">
+        <span class="pin ${role(i)}" aria-hidden="true">${pinText(i)}</span>
+        <div class="plan-search">
+          <input type="search" enterkeyhint="search" autocomplete="off" spellcheck="false"
+            aria-label="${ROLE[role(i)]}" placeholder="Buscar ${ROLE[role(i)].toLowerCase()}…" value="${esc(p?.label ?? '')}">
+          <ul class="plan-suggest" role="listbox" hidden></ul>
+        </div>
+        ${i === 0 ? `<button type="button" class="plan-icon-btn plan-gps" aria-label="Sair da minha localização" title="Minha localização">${GPS_ICON}</button>` : ''}
+        ${role(i) === 'via' ? '<button type="button" class="plan-icon-btn plan-remove" aria-label="Remover parada" title="Remover parada">✕</button>' : ''}
+      </li>`).join('');
+  }
+
+  const coords = (p) => `${p.lat.toFixed(4)}, ${p.lon.toFixed(4)}`;
+
+  function setStop(i, point, { label } = {}) {
+    const p = { lat: point.lat, lon: point.lon, label: label ?? point.label ?? null };
+    stops[i] = p;
+    if (!p.label) {
+      p.label = coords(p);
+      placeName(p.lat, p.lon).then((name) => {
+        if (name && stops[i] === p) { p.label = name; renderStops(); }
+      });
     }
-    pointButtons[which].querySelector('.label').textContent = `${pointLabels[which]}: ${latlng.lat.toFixed(4)}, ${latlng.lng.toFixed(4)}`;
-    pointButtons[which].classList.add('set');
-    stopPicking();
+    syncMarkers();
+    renderStops();
+    ensureLoaded();
     update();
   }
 
-  function startPicking(which) {
-    picking = which;
-    map.getContainer().classList.add('picking');
-    for (const [k, b] of Object.entries(pointButtons)) b.classList.toggle('active', k === which);
-    status.textContent = `Toque no mapa para marcar ${which === 'from' ? 'a origem' : 'o destino'}.`;
+  function removeStop(i) {
+    if (stops.length > 2) stops.splice(i, 1);
+    else stops[i] = null;
+    syncMarkers();
+    renderStops();
+    update();
   }
 
-  function stopPicking() {
-    picking = null;
-    map.getContainer().classList.remove('picking');
-    for (const b of Object.values(pointButtons)) b.classList.remove('active');
+  function addTap(latlng) {
+    const point = { lat: latlng.lat, lon: latlng.lng };
+    const empty = stops.indexOf(null);
+    if (empty >= 0) return setStop(empty, point);
+    stops.push(null);
+    setStop(stops.length - 1, point);
   }
 
-  for (const [which, button] of Object.entries(pointButtons)) {
-    button.addEventListener('click', () => (picking === which ? stopPicking() : startPicking(which)));
-  }
-  // Caught before it reaches the map: almost every spot has a bus route or a bus under
-  // it, and those would open their popup instead. A drag still pans the map.
-  map.getContainer().addEventListener('click', (e) => {
-    if (!picking || map.dragging?.moved() || e.target.closest('.leaflet-control, .leaflet-popup')) return;
-    e.stopPropagation();
-    const which = picking;
-    setPoint(which, map.mouseEventToLatLng(e));
-    // After the origin, go straight to the destination if it's still missing.
-    if (which === 'from' && !points.to) startPicking('to');
-  }, true);
-
-  // Long press (or right click) anywhere: start or end the trip here.
-  map.on('contextmenu', (e) => {
-    const box = document.createElement('div');
-    box.className = 'plan-menu';
-    box.innerHTML = '<button type="button" data-p="from">Sair daqui</button><button type="button" data-p="to">Ir para cá</button>';
-    const popup = L.popup({ closeButton: false }).setLatLng(e.latlng).setContent(box).openOn(map);
-    box.addEventListener('click', (ev) => {
-      const which = ev.target.closest('button')?.dataset.p;
-      if (!which) return;
-      map.closePopup(popup);
-      openPanel();
-      setPoint(which, e.latlng);
-    });
+  // Taps on the map (not on a bus, station or pin, which keep their popups) add points
+  // while the planner is open.
+  map.on('popupclose', () => quiet(350));
+  map.on('click', (e) => {
+    if (!details.open || Date.now() < quietUntil) return;
+    addTap(e.latlng);
   });
 
-  $('#plan-locate').addEventListener('click', () => {
-    if (!navigator.geolocation) { status.textContent = 'Este navegador não informa a localização.'; return; }
-    status.textContent = 'Buscando sua localização…';
-    navigator.geolocation.getCurrentPosition(
-      (pos) => setPoint('from', L.latLng(pos.coords.latitude, pos.coords.longitude)),
-      () => { status.textContent = 'Não foi possível obter sua localização.'; },
-      { enableHighAccuracy: true, timeout: 15_000 },
-    );
+  stopsList.addEventListener('click', (e) => {
+    const li = e.target.closest('li[data-i]');
+    if (!li) return;
+    const i = Number(li.dataset.i);
+    if (e.target.closest('.plan-remove')) return removeStop(i);
+    if (e.target.closest('.plan-gps')) {
+      status.textContent = 'Localizando…';
+      locate.position()
+        .then((ll) => setStop(0, { lat: ll.lat, lon: ll.lng }, { label: 'Minha localização' }))
+        .catch(() => { status.textContent = 'Sem localização.'; });
+    }
+  });
+
+  $('#plan-add-stop').addEventListener('click', () => {
+    stops.splice(stops.length - 1, 0, null);
+    syncMarkers();
+    renderStops();
+    stopsList.querySelector(`li[data-i="${stops.length - 2}"] input`)?.focus();
   });
 
   $('#plan-swap').addEventListener('click', () => {
-    const { from, to } = points;
-    if (!from || !to) return;
-    setPoint('from', L.latLng(to.lat, to.lon));
-    setPoint('to', L.latLng(from.lat, from.lon));
+    stops.reverse();
+    syncMarkers();
+    renderStops();
+    update();
   });
 
   $('#plan-clear').addEventListener('click', () => {
-    for (const which of ['from', 'to']) {
-      markers[which]?.remove();
-      markers[which] = points[which] = null;
-      pointButtons[which].classList.remove('set');
-      pointButtons[which].querySelector('.label').textContent = `${pointLabels[which]}: toque aqui e depois no mapa`;
-    }
-    stopPicking();
+    stops = [null, null];
+    syncMarkers();
+    renderStops();
     journeys = [];
+    candidates = null;
     routeLayer.clearLayers();
     iconLegs = [];
     iconLayer.clearLayers();
     results.innerHTML = '';
     status.textContent = '';
+    map.getContainer().classList.remove('route-shown');
   });
 
-  function openPanel() {
-    details.open = true;
-    if ($('#panel').classList.contains('collapsed')) $('#panel-toggle').click();
+  // ---------------------------------------------------------------- place search
+
+  let searchTimer = null;
+  let searchAbort = null;
+  let found = []; // results shown under the focused input
+  let active = -1;
+
+  function suggestions(li) { return li.querySelector('.plan-suggest'); }
+
+  function showResults(li, items, message) {
+    const ul = suggestions(li);
+    found = items;
+    active = -1;
+    ul.innerHTML = message
+      ? `<li class="plan-suggest-note">${esc(message)}</li>`
+      : items.map((r, k) => `<li role="option" data-k="${k}"><b>${esc(r.label)}</b>${r.detail ? `<small>${esc(r.detail)}</small>` : ''}</li>`).join('');
+    ul.hidden = !message && !items.length;
   }
+
+  function pick(li, k) {
+    const r = found[k];
+    if (!r) return;
+    quiet(700);
+    const i = Number(li.dataset.i);
+    suggestions(li).hidden = true;
+    setStop(i, { lat: r.lat, lon: r.lon }, { label: r.label });
+    if (!journeys.length) map.setView([r.lat, r.lon], Math.max(map.getZoom(), 15));
+  }
+
+  stopsList.addEventListener('focusin', (e) => { if (e.target.matches('input')) ensureLoaded(); });
+  stopsList.addEventListener('input', (e) => {
+    const input = e.target.closest('input');
+    if (!input) return;
+    const li = input.closest('li[data-i]');
+    clearTimeout(searchTimer);
+    const q = input.value.trim();
+    if (q.length < 3) return showResults(li, []);
+    searchTimer = setTimeout(async () => {
+      searchAbort?.abort();
+      searchAbort = new AbortController();
+      showResults(li, [], 'Buscando…');
+      try {
+        const items = await searchPlaces(q, map.getCenter(), searchAbort.signal);
+        if (input.value.trim() === q) showResults(li, items, items.length ? null : 'Nada encontrado');
+      } catch (err) {
+        if (err.name !== 'AbortError') showResults(li, [], 'Busca indisponível');
+      }
+    }, 350);
+  });
+  // pointerdown, not click: picking must happen before the input's blur hides the list.
+  stopsList.addEventListener('pointerdown', (e) => {
+    const opt = e.target.closest('.plan-suggest li[data-k]');
+    if (!opt) return;
+    e.preventDefault();
+    pick(opt.closest('li[data-i]'), Number(opt.dataset.k));
+  });
+  stopsList.addEventListener('keydown', (e) => {
+    const input = e.target.closest('input');
+    if (!input) return;
+    const li = input.closest('li[data-i]');
+    const ul = suggestions(li);
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      if (!found.length) return;
+      e.preventDefault();
+      active = (active + (e.key === 'ArrowDown' ? 1 : -1) + found.length) % found.length;
+      ul.querySelectorAll('li[data-k]').forEach((o, k) => o.classList.toggle('active', k === active));
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (found.length) pick(li, Math.max(0, active));
+      else input.blur(); // closes the phone keyboard
+    } else if (e.key === 'Escape') {
+      ul.hidden = true;
+    }
+  });
+  stopsList.addEventListener('focusout', (e) => {
+    const li = e.target.closest?.('li[data-i]');
+    if (li) setTimeout(() => { suggestions(li).hidden = true; }, 150);
+  });
+
+  renderStops();
 
   // ---------------------------------------------------------------- options
 
@@ -249,9 +362,14 @@ export function initPlanner({ map, railLines, getBuses }) {
   // ---------------------------------------------------------------- search
 
   let searchId = 0;
+
+  /** Epoch ms of midnight (São Paulo) of the day `ms` falls in; journey times count from it. */
+  const midnight = (ms) => Date.parse(`${spParts(new Date(ms)).iso}T00:00:00-03:00`);
+
   async function update() {
-    if (!points.from || !points.to) {
-      if (!picking) status.textContent = 'Marque a origem e o destino.';
+    const from = stops[0], to = stops[stops.length - 1];
+    if (!from || !to) {
+      status.textContent = !from ? 'Toque no mapa ou busque a origem.' : 'Agora o destino.';
       return;
     }
     const id = ++searchId;
@@ -259,24 +377,59 @@ export function initPlanner({ map, railLines, getBuses }) {
     const later = at.value ? new Date(`${at.value}-03:00`) : null;
     const vehicles = later ? null : getBuses();
     const mode = optimize();
-    status.textContent = loaded ? 'Calculando…' : 'Baixando a rede de transporte (só na primeira vez)…';
-    const reply = await ask({
-      kind: 'plan', from: points.from, to: points.to, profile: profile(), optimize: mode, timeWeight: timeWeight(), avoidArterials: arterials.checked,
-      power: POWER_LEVELS[power.value], at: (later ?? new Date()).getTime(), vehicles,
-    });
-    if (id !== searchId) return;
-    if (reply.kind === 'error') {
-      status.textContent = `Não deu para calcular: ${reply.message}`;
-      return;
+    const options = { profile: profile(), optimize: mode, timeWeight: timeWeight(), avoidArterials: arterials.checked, power: POWER_LEVELS[power.value], vehicles };
+    status.textContent = loaded ? 'Calculando…' : 'Baixando dados do planejador (só na primeira vez)…';
+
+    // With stops in between, each leg leaves when the previous one arrives, and the
+    // trip is the best option of every leg, one after the other.
+    const points = stops.filter(Boolean);
+    let start = (later ?? new Date()).getTime();
+    const base = midnight(start);
+    let reply = null;
+    const parts = [];
+    for (let k = 0; k + 1 < points.length; k++) {
+      reply = await ask({ kind: 'plan', from: points[k], to: points[k + 1], at: start, ...options });
+      if (id !== searchId) return;
+      if (reply.kind === 'error') { status.textContent = `Não deu para calcular: ${reply.message}`; return; }
+      loaded = true;
+      if (!reply.journeys.length) {
+        status.textContent = points.length > 2 ? `Sem opção até a parada ${k + 1}.` : 'Nenhuma opção encontrada.';
+        journeys = []; render();
+        return;
+      }
+      if (points.length === 2) break;
+      const best = mode === 'balanced' ? balance(reply.journeys, timeWeight())[0] : reply.journeys[0];
+      const shift = (midnight(start) - base) / 1000; // legs after midnight keep counting from day one
+      parts.push(shiftJourney(best, shift));
+      start = midnight(start) + best.arrive * 1000;
     }
-    loaded = true;
-    candidates = mode === 'balanced' ? reply.journeys : null;
-    journeys = reply.journeys.slice(0, SHOWN);
+
+    if (points.length === 2) {
+      candidates = mode === 'balanced' ? reply.journeys : null;
+      journeys = reply.journeys.slice(0, SHOWN);
+    } else {
+      candidates = null;
+      journeys = [{
+        profile: parts[0].profile,
+        depart: parts[0].depart,
+        arrive: parts.at(-1).arrive,
+        kcal: parts.reduce((n, j) => n + j.kcal, 0),
+        rides: parts.reduce((n, j) => n + j.rides, 0),
+        legs: parts.flatMap((j) => j.legs),
+      }];
+    }
     selected = 0;
-    const source = later ? 'ônibus pelos horários das linhas habituais'
-      : reply.live ? 'superarticulados ao vivo' : 'sem dados ao vivo: ônibus pelas linhas habituais';
-    status.textContent = `${journeys.length} ${journeys.length === 1 ? 'opção' : 'opções'} · ${source}${reply.streets ? '' : ' · sem mapa de ruas: trechos a pé e de bici em linha reta'}`;
+    const live = later ? '' : reply.live ? ' · ônibus ao vivo' : '';
+    status.textContent = points.length > 2
+      ? `Com ${points.length - 2} ${points.length === 3 ? 'parada' : 'paradas'}${live}`
+      : `${journeys.length} ${journeys.length === 1 ? 'opção' : 'opções'}${live}`;
     render();
+  }
+
+  function shiftJourney(j, s) {
+    if (!s) return j;
+    const legs = j.legs.map((leg) => ({ ...leg, depart: leg.depart + s, arrive: leg.arrive + s }));
+    return { ...j, depart: j.depart + s, arrive: j.arrive + s, legs };
   }
 
   // ---------------------------------------------------------------- results
@@ -312,7 +465,7 @@ export function initPlanner({ map, railLines, getBuses }) {
     const span = `${hhmm(leg.depart)}–${hhmm(leg.arrive)}`;
     if (leg.kind === 'station') {
       const climb = leg.up ? `sobe ${leg.up} m` : leg.down ? `desce ${leg.down} m` : '';
-      const how = leg.withBike ? 'com a bici, por escada fixa ou elevador' : '';
+      const how = '';
       return `<li><span class="leg-icon">${MODE_ICON.station}</span><div><b>${leg.dir === 'in' ? 'Entrar na' : 'Sair da'} estação ${esc(leg.at.name)}</b>
         <span class="detail">${span} · ${minutes(leg.arrive - leg.depart)}${climb ? ` · ${climb}` : ''} · ${kcal(leg.kcal)}${how ? ` · ${how}` : ''}</span></div></li>`;
     }
@@ -327,12 +480,12 @@ export function initPlanner({ map, railLines, getBuses }) {
     }
     if (leg.kind === 'park') {
       return `<li><span class="leg-icon">${MODE_ICON.park}</span><div><b>Deixe a bici: ${esc(leg.at.name)}</b>
-        <span class="detail">${esc(ACCESS[leg.at.access]?.label ?? '')}. ${esc(ACCESS[leg.at.access]?.detail ?? '')}</span></div></li>`;
+        <span class="detail">${esc(ACCESS[leg.at.access]?.label ?? '')}</span></div></li>`;
     }
     const notes = [];
-    if (leg.withBike) notes.push(leg.mode === 'bus' ? 'Com a bici: embarque pela porta traseira' : 'Com a bici no último carro');
-    if (leg.live) notes.push(`Ônibus ${esc(leg.live)}, posição ao vivo`);
-    else if (leg.estimated) notes.push('Horário estimado: linha habitual de superarticulados, sem posição ao vivo');
+    if (leg.withBike) notes.push(leg.mode === 'bus' ? 'Com a bici: porta traseira' : 'Com a bici: último carro');
+    if (leg.live) notes.push(`Ônibus ${esc(leg.live)} ao vivo`);
+    else if (leg.estimated) notes.push('Horário estimado');
     return `<li><span class="leg-icon">${MODE_ICON[leg.mode]}</span><div><b>${rideBadge(leg)} ${esc(lineName(leg))}</b>
       <span class="detail">sentido ${esc(leg.headsign.trim())}</span>
       <span class="detail">${hhmm(leg.depart)} ${esc(leg.from.name)} → ${hhmm(leg.arrive)} ${esc(leg.to.name)} · ${leg.stops} ${leg.stops === 1 ? 'parada' : 'paradas'}</span>
@@ -362,6 +515,8 @@ export function initPlanner({ map, railLines, getBuses }) {
     routeLayer.clearLayers();
     iconLegs = [];
     const j = journeys[selected];
+    // With a route on the map, everything else fades so the route stands out.
+    map.getContainer().classList.toggle('route-shown', !!j);
     if (!j) return;
     const bounds = L.latLngBounds([]);
     for (const leg of j.legs) {
@@ -390,13 +545,13 @@ export function initPlanner({ map, railLines, getBuses }) {
       for (const p of path) bounds.extend(p);
     }
     if (!bounds.isValid()) return;
-    // Keep the route clear of the panel: on the left on wide screens, at the bottom on phones.
-    const box = $('#panel').getBoundingClientRect(), size = map.getSize();
-    const bottomSheet = box.left < 1 && box.width >= size.x - 1;
+    for (const p of stops) if (p) bounds.extend([p.lat, p.lon]);
+    // Keep the route clear of the menu sheet and the map buttons.
+    const inset = sheetInsets();
     map.fitBounds(bounds, {
-      paddingTopLeft: [bottomSheet ? 30 : box.right + 30, 30],
-      paddingBottomRight: [60, bottomSheet ? size.y - box.top + 30 : 30],
-      maxZoom: 15,
+      paddingTopLeft: [inset.left + 30, 30],
+      paddingBottomRight: [70, inset.bottom + 30],
+      maxZoom: 16,
     });
     placeIcons();
   }

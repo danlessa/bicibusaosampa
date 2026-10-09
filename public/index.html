@@ -6,11 +6,18 @@
   <title>Bici Busão Sampa</title>
   <meta name="description" content="Mapa ao vivo dos ônibus e trens da Grande São Paulo que levam bicicleta.">
   <meta name="theme-color" content="#0f766e">
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🚲</text></svg>">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/icon-180.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Bici Busão">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
   <link rel="stylesheet" href="style.css">
   <!-- Fetch everything app.js needs up front instead of discovering it import by import. -->
+  <link rel="modulepreload" href="js/geocode.js">
   <link rel="modulepreload" href="js/heading.js">
+  <link rel="modulepreload" href="js/locate.js">
   <link rel="modulepreload" href="js/offset.js">
   <link rel="modulepreload" href="js/parking.js">
   <link rel="modulepreload" href="js/planner.js">
@@ -19,6 +26,7 @@
   <link rel="modulepreload" href="js/rail.js">
   <link rel="modulepreload" href="js/schedule.js">
   <link rel="modulepreload" href="js/time.js">
+  <link rel="modulepreload" href="js/ui.js">
   <link rel="preload" href="data/rail-lines.json" as="fetch" crossorigin>
   <link rel="preload" href="data/bike-buses.json" as="fetch" crossorigin>
   <link rel="preload" href="data/rail.geojson" as="fetch" crossorigin>
@@ -28,33 +36,36 @@
 <body>
   <div id="map" role="application" aria-label="Mapa"></div>
 
-  <aside id="panel" aria-label="Legenda e linhas">
-    <header>
-      <button id="panel-toggle" aria-expanded="true" aria-controls="panel-body" title="Mostrar/ocultar painel">☰</button>
-      <div>
-        <h1>Bici Busão Sampa</h1>
-        <p class="sub">Ônibus e trilhos que levam bicicleta na Grande SP</p>
-      </div>
-    </header>
-    <div id="panel-body">
-      <p id="clock" class="clock"></p>
+  <div id="map-buttons">
+    <button type="button" id="panel-toggle" class="map-btn" aria-controls="panel" aria-pressed="true" aria-label="Menu" title="Menu">☰</button>
+    <button type="button" id="layers-toggle" class="map-btn" aria-controls="layers-panel" aria-pressed="false" aria-label="Camadas e legenda" title="Camadas e legenda">
+      <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M12 3 2 8.5 12 14l10-5.5L12 3Z" fill="currentColor"/><path d="m2 13 10 5.5L22 13M2 17.5 12 23l10-5.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
+    </button>
+    <button type="button" id="locate-btn" class="map-btn" aria-pressed="false" aria-label="Minha localização" title="Minha localização">
+      <svg viewBox="0 0 512 512" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M445 4 29 195c-48 23-32 93 19 93h176v176c0 51 70 67 93 19L508 67c16-38-25-79-63-63z"/></svg>
+    </button>
+  </div>
 
+  <aside id="panel" class="sheet" aria-label="Menu">
+    <div class="grip" role="separator" aria-label="Arraste para redimensionar"></div>
+    <header>
+      <h1>Bici Busão Sampa</h1>
+      <p id="clock" class="clock"></p>
+    </header>
+    <div class="sheet-body">
       <section id="plan-section">
-        <details id="plan-details">
-          <summary><h2>Planejar viagem <span class="count">(protótipo)</span></h2></summary>
-          <div class="plan-points">
-            <button type="button" id="plan-from" class="plan-point"><span class="pin a">A</span><span class="label">Origem: toque aqui e depois no mapa</span></button>
-            <button type="button" id="plan-to" class="plan-point"><span class="pin b">B</span><span class="label">Destino: toque aqui e depois no mapa</span></button>
-            <div class="plan-actions">
-              <button type="button" id="plan-locate">📍 Minha localização</button>
-              <button type="button" id="plan-swap" title="Inverter origem e destino">⇅ Inverter</button>
-              <button type="button" id="plan-clear">Limpar</button>
-            </div>
+        <details id="plan-details" open>
+          <summary><h2>Planejar viagem</h2></summary>
+          <ol id="plan-stops" class="plan-stops"></ol>
+          <div class="plan-actions">
+            <button type="button" id="plan-add-stop">+ Parada</button>
+            <button type="button" id="plan-swap" aria-label="Inverter origem e destino">⇅ Inverter</button>
+            <button type="button" id="plan-clear">Limpar</button>
           </div>
-          <fieldset class="plan-modes">
+          <fieldset class="plan-modes plan-profiles">
             <legend class="sr-only">Como ir</legend>
-            <label><input type="radio" name="plan-profile" value="bike" checked><span>🚲 De bici</span></label>
-            <label><input type="radio" name="plan-profile" value="carry"><span>🚲 Sempre com ela</span></label>
+            <label><input type="radio" name="plan-profile" value="bike" checked><span>🚲 Bicicleta + Intermodal + Bicicletários</span></label>
+            <label><input type="radio" name="plan-profile" value="carry"><span>🚲 Bicicleta + Intermodal</span></label>
             <label><input type="radio" name="plan-profile" value="walk"><span>🚶 A pé</span></label>
           </fieldset>
           <fieldset class="plan-modes plan-optimize">
@@ -63,54 +74,25 @@
             <label><input type="radio" name="plan-optimize" value="balanced"><span>⚖️ Balanceado</span></label>
             <label><input type="radio" name="plan-optimize" value="energy"><span>🔋 Menos esforço</span></label>
           </fieldset>
-          <div class="plan-field plan-weight" id="plan-weight-field" hidden>
-            <label for="plan-weight">Equilíbrio</label>
-            <span class="end">🔋</span>
-            <input type="range" id="plan-weight" min="0" max="2" step="1" value="1" aria-describedby="plan-weight-label">
-            <span class="end">⏱️</span>
-            <output id="plan-weight-label" for="plan-weight"></output>
-          </div>
-          <label class="plan-field" id="plan-power-field">Ritmo <select id="plan-power"></select></label>
-          <label class="plan-check" id="plan-arterials-field"><input type="checkbox" id="plan-arterials" checked> Evitar avenidas e vias expressas sem ciclovia ou ciclofaixa</label>
-          <div class="plan-field">
-            <label for="plan-at">Saída</label>
-            <input type="datetime-local" id="plan-at">
-            <button type="button" id="plan-now">Agora</button>
-          </div>
-          <p id="plan-status" class="note">Marque a origem e o destino. Também dá para tocar e segurar no mapa.</p>
+          <details class="plan-more">
+            <summary>Mais opções</summary>
+            <div class="plan-field plan-weight" id="plan-weight-field" hidden>
+              <label for="plan-weight">Equilíbrio</label>
+              <span class="end">🔋</span>
+              <input type="range" id="plan-weight" min="0" max="2" step="1" value="1" aria-describedby="plan-weight-label">
+              <span class="end">⏱️</span>
+              <output id="plan-weight-label" for="plan-weight"></output>
+            </div>
+            <label class="plan-field" id="plan-power-field">Ritmo <select id="plan-power"></select></label>
+            <label class="plan-check" id="plan-arterials-field"><input type="checkbox" id="plan-arterials" checked> Evitar avenidas sem ciclovia</label>
+            <div class="plan-field">
+              <label for="plan-at">Saída</label>
+              <input type="datetime-local" id="plan-at">
+              <button type="button" id="plan-now">Agora</button>
+            </div>
+          </details>
+          <p id="plan-status" class="note" role="status"></p>
           <ol id="plan-results" class="plan-results"></ol>
-          <p class="note">Protótipo. "De bici" pode deixar a bici num bicicletário de estação ou terminal; "Sempre com ela" nunca a deixa. "Menos esforço" busca o menor gasto de calorias (acima do repouso), mesmo que demore mais: pedalar e andar contam, ir sentado ou em pé no ônibus e no trem quase nada. "Balanceado" fica no meio: soma calorias e minutos, com o peso do tempo escolhido no controle Equilíbrio (1 minuto vale 1, 3 ou 10 kcal; 3 por padrão). Trechos a pé e de bici pelas ruas do OpenStreetMap, com o relevo; fora da área coberta, em linha reta. Dentro das estações, a bici vai empurrada; entrar, sair e fazer baldeação contam tempo e subidas estimados. Com saída agora, os ônibus com bici são os superarticulados na rua; para depois, as linhas onde eles costumam rodar.</p>
-        </details>
-      </section>
-
-      <section id="legend-section">
-        <details open>
-          <summary><h2>Legenda</h2></summary>
-          <h3 class="legend-title">Metrô e trens</h3>
-          <ul class="legend">
-            <li><span class="dot ok"></span>Bicicleta liberada agora</li>
-            <li><span class="dot wait"></span>Em operação, fora do horário da bici</li>
-            <li><span class="dot closed"></span>Fechada</li>
-          </ul>
-          <h3 class="legend-title">Ônibus</h3>
-          <ul class="legend">
-            <li><span class="swatch" style="background:#16a34a"></span>Bici liberada agora, linha habitual</li>
-            <li><span class="swatch" style="background:#9333ea"></span>Bici liberada agora, fora da rota habitual</li>
-            <li><span class="swatch" style="background:#eab308"></span>Fora do horário da bici, linha habitual</li>
-            <li><span class="swatch" style="background:#f97316"></span>Fora do horário da bici, fora da rota habitual</li>
-          </ul>
-          <h3 class="legend-title">Bicicletários e paraciclos</h3>
-          <ul class="legend">
-            <li><span class="dot" style="background:#16a34a"></span>Livre: gratuito, sem cadastro</li>
-            <li><span class="dot" style="background:#2563eb"></span>Com cadastro no local (gratuito, documento com foto)</li>
-            <li><span class="dot" style="background:#db2777"></span>Pago</li>
-            <li><span class="dot" style="background:#78716c"></span>Só clientes ou autorizados</li>
-            <li><span class="dot closed"></span>Fechado agora</li>
-          </ul>
-          <ul class="legend shapes">
-            <li><span data-parking-shape="bicicletario"></span>Bicicletário: coberto, quase sempre com controle de entrada (a partir do zoom 12)</li>
-            <li><span data-parking-shape="paraciclo"></span>Paraciclo: suporte para prender a bici (a partir do zoom 14)</li>
-          </ul>
         </details>
       </section>
 
@@ -137,11 +119,47 @@
       </section>
 
       <footer>
-        <p>Bicicletas dobráveis podem ser levadas a qualquer hora nos trilhos. Confira sempre as regras na estação.</p>
-        <p><a href="https://github.com/danlessa/bicibusaosampa">Código-fonte</a> · Dados: SPTrans Olho Vivo, © OpenStreetMap, GeoSampa · Ícones Metrô e CPTM: <a href="https://commons.wikimedia.org/wiki/File:Metr%C3%B4-SP_icon.svg">Wikimedia Commons</a></p>
+        <p><a href="https://github.com/danlessa/bicibusaosampa">Código</a> · SPTrans · © OpenStreetMap · GeoSampa · Photon</p>
       </footer>
     </div>
   </aside>
+
+  <aside id="layers-panel" class="sheet collapsed" aria-label="Camadas e legenda">
+    <div class="grip" role="separator" aria-label="Arraste para redimensionar"></div>
+    <header><h1>Camadas</h1></header>
+    <div class="sheet-body">
+      <ul id="layer-rows" class="layer-rows"></ul>
+      <h2>Legenda</h2>
+      <h3 class="legend-title">Metrô e trens</h3>
+      <ul class="legend">
+        <li><span class="dot ok"></span>Bici liberada</li>
+        <li><span class="dot wait"></span>Fora do horário</li>
+        <li><span class="dot closed"></span>Fechada</li>
+      </ul>
+      <h3 class="legend-title">Ônibus</h3>
+      <ul class="legend">
+        <li><span class="swatch" style="background:#16a34a"></span>Bici liberada</li>
+        <li><span class="swatch" style="background:#9333ea"></span>Bici liberada, fora da rota</li>
+        <li><span class="swatch" style="background:#eab308"></span>Fora do horário</li>
+        <li><span class="swatch" style="background:#f97316"></span>Fora do horário e da rota</li>
+      </ul>
+      <h3 class="legend-title">Onde deixar a bici</h3>
+      <ul class="legend">
+        <li><span class="dot" style="background:#16a34a"></span>Grátis</li>
+        <li><span class="dot" style="background:#2563eb"></span>Grátis com cadastro</li>
+        <li><span class="dot" style="background:#db2777"></span>Pago</li>
+        <li><span class="dot" style="background:#78716c"></span>Só clientes</li>
+        <li><span class="dot closed"></span>Fechado agora</li>
+      </ul>
+      <ul class="legend shapes">
+        <li><span data-parking-shape="bicicletario"></span>Bicicletário</li>
+        <li><span data-parking-shape="paraciclo"></span>Paraciclo</li>
+      </ul>
+    </div>
+  </aside>
+
+  <button type="button" id="update-banner" hidden>Nova versão · toque para atualizar</button>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
   <script type="module" src="js/app.js"></script>
