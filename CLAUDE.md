@@ -46,7 +46,7 @@ append `window.__map = map;`.
     helpers that break it in the browser.
   - `manifest.webmanifest`, `icons/icon-*.png`: PWA install and favicon, generated from
     `assets/icon.jpg` (gitignored): full-bleed 180 for iOS, rounded 32/192/512 with
-    transparent corners, maskable 512 at 70 % on navy `#0a2235`.
+    transparent corners, maskable 512 at 70 % on dark brown `#3d2b1f` (the manifest's splash colour too).
   - `vendor/leaflet-rotate/`: leaflet-rotate 0.2.8 (GPL-3.0) as patched by Câmera
     Topográfica (steadier touch rotation and pinch anchor). Map rotation: two fingers
     on phones, Shift + wheel with a mouse; a compass button resets north.
