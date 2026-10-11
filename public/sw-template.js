@@ -21,7 +21,7 @@ const DEV = VERSION === 'dev';
 
 const SHELL = [
   '/', '/style.css', '/manifest.webmanifest',
-  '/icons/icon.svg', '/icons/icon-192.png', '/icons/metro.svg', '/icons/cptm.svg',
+  '/icons/icon-32.png', '/icons/icon-192.png', '/icons/metro.svg', '/icons/cptm.svg',
   '/js/app.js', '/js/geocode.js', '/js/heading.js', '/js/live-trips.js', '/js/locate.js',
   '/js/offset.js', '/js/parking.js', '/js/planner.js', '/js/planner-worker.js', '/js/raptor.js',
   '/js/rail.js', '/js/schedule.js', '/js/streets.js', '/js/time.js', '/js/ui.js',
