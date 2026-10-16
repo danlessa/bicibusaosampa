@@ -92,7 +92,7 @@ function describe(leg) {
   }
   if (leg.kind === 'park') return `🅿️  ${span} deixa a bici: ${leg.at.name} (${leg.at.access})`;
   const line = leg.mode === 'bus' ? leg.route : `Linha ${leg.rail}`;
-  const tag = leg.live ? ` · ônibus ${leg.live} ao vivo` : leg.estimated ? ' · estimado (linha habitual)' : '';
+  const tag = leg.live ? ` · ônibus ${leg.live} ao vivo` : leg.hold ? ' · seletivo EMTU, horário estimado' : leg.estimated ? ' · estimado (linha habitual)' : '';
   return `${MODE_ICON[leg.mode]} ${span} ${line} sentido ${leg.headsign}: ${leg.from.name} → ${leg.to.name} (${leg.stops} paradas)${leg.withBike ? ' com a bici' : ''}${tag}`;
 }
 

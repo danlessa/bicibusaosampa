@@ -1,10 +1,12 @@
-// Transit network for the trip planner: turns the SPTrans GTFS (buses, Metrô and CPTM)
-// into public/data/routing/transit.json, read by public/js/raptor.js.
+// Transit network for the trip planner: turns the SPTrans GTFS (buses, Metrô and CPTM),
+// plus our EMTU seletivo GTFS, into public/data/routing/transit.json, read by
+// public/js/raptor.js.
 //
 // The SPTrans GTFS is frequency-based: one template trip per line and direction
 // (stop_times relative to its first departure) plus headways per hour
 // (frequencies.txt). Each pattern keeps that template as offsets and the expanded
 // departures from its first stop, so the client never stores per-trip stop times.
+// Timetabled trips (EMTU) with the same stops and offsets fold into one pattern.
 
 import { round } from '../functions/_lib/geometry.js';
 
@@ -70,6 +72,7 @@ export function buildTransit({ routes, trips, stops, stopTimes, frequencies, cal
   };
 
   const patterns = [];
+  const patternByKey = new Map();
   for (const t of trips) {
     const route = routeById.get(t.route_id);
     const mode = route && MODES[route.route_type];
@@ -85,22 +88,37 @@ export function buildTransit({ routes, trips, stops, stopTimes, frequencies, cal
       offsets.push(seconds(st.arrival_time || st.departure_time) - first);
     }
     if (stopIdx.length < 2) continue;
-    patterns.push({
+    const dir = Number(t.direction_id) || 0;
+    const bikes = t.bikes_allowed === '1';
+    const departures = expandFrequencies(freqByTrip.get(t.trip_id) ?? [], first);
+    const key = [t.route_id, dir, t.service_id, t.trip_headsign, bikes, stopIdx.join(' '), offsets.join(' ')].join('|');
+    const same = patternByKey.get(key);
+    if (same) {
+      same.departures.push(...departures);
+      continue;
+    }
+    const pattern = {
       route: t.route_id,
-      dir: Number(t.direction_id) || 0,
+      dir,
       mode,
       rail: mode === 'bus' ? null : railRef(t.route_id),
       headsign: t.trip_headsign,
       service: t.service_id,
       stops: stopIdx,
       offsets,
-      departures: expandFrequencies(freqByTrip.get(t.trip_id) ?? [], first),
-    });
+      departures,
+    };
+    // GTFS bikes_allowed: the bike goes on any trip of this pattern, whatever the
+    // hour (EMTU seletivo coaches, in the luggage hold).
+    if (bikes) pattern.bikes = 1;
+    patternByKey.set(key, pattern);
+    patterns.push(pattern);
   }
+  for (const p of patterns) p.departures = [...new Set(p.departures)].sort((a, b) => a - b);
 
   const services = Object.fromEntries(calendar.map((c) => [c.service_id, DAYS.map((d) => Number(c[d]) || 0)]));
   return {
-    _comment: 'Gerado por scripts/build-data.mjs a partir do GTFS da SPTrans (ônibus, Metrô e CPTM). Rede do planejador de viagens: cada padrão é uma linha num sentido, com os tempos de cada parada a partir da primeira (offsets, em segundos) e as partidas da primeira parada no dia (departures, segundos desde a meia-noite). services: dias da semana (seg..dom) de cada service_id.',
+    _comment: 'Gerado por scripts/build-data.mjs a partir do GTFS da SPTrans (ônibus, Metrô e CPTM) e do GTFS dos seletivos da EMTU (public/data/gtfs/emtu-seletivo.zip). Rede do planejador de viagens: cada padrão é uma linha num sentido, com os tempos de cada parada a partir da primeira (offsets, em segundos) e as partidas da primeira parada no dia (departures, segundos desde a meia-noite). services: dias da semana (seg..dom) de cada service_id. bikes: 1 = bici a qualquer hora (bikes_allowed do GTFS).',
     version: 1,
     services,
     stops: out,

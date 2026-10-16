@@ -35,7 +35,8 @@ Mapa ao vivo dos ônibus e trilhos da Grande São Paulo que levam bicicleta, em
   seletivas intermunicipais (ônibus rodoviários, só passageiros sentados), em
   azul-petróleo e com cantos retos. A bici vai no bagageiro, se houver espaço. A EMTU
   não publica regra nem horário para bicicletas nesses ônibus, então o mapa não dá
-  um status: confirme com o motorista.
+  um status: confirme com o motorista. O planejador de viagens usa essas linhas com a
+  bici a qualquer hora, com horários estimados.
 
 - **Bicicletários e paraciclos** de toda a Grande SP (os 39 municípios da RMSP),
   do OpenStreetMap e da lista oficial da Prefeitura (GeoSampa). O bicicletário
@@ -90,6 +91,16 @@ node scripts/suggest-lines.mjs           # mostra as linhas e quantos superartic
 node scripts/suggest-lines.mjs --write   # acrescenta as linhas regulares (3+ ônibus e 20%+ da frota da linha)
 ```
 
+## GTFS dos seletivos da EMTU
+
+A EMTU não publica um GTFS atual. Montamos um para as linhas seletivas, em
+[busao.bicisampa.info/data/gtfs/emtu-seletivo.zip](https://busao.bicisampa.info/data/gtfs/emtu-seletivo.zip),
+regenerado toda semana a partir do feed dos apps da EMTU: pontos, itinerários,
+partidas por tipo de dia e tempo de viagem de cada sentido. Os horários nas paradas
+do meio são estimados pela distância ao longo do itinerário (`timepoint=0`); feriados
+seguem a tabela de domingo. Todas as viagens têm `bikes_allowed=1` (bici no bagageiro,
+sem regra publicada pela EMTU).
+
 ## Como funciona
 
 ```
@@ -105,6 +116,8 @@ public/                       site estático (Leaflet)
   data/emtu-seletivo.json     linhas seletivas da EMTU (do relatório tarifário) e regra
   data/emtu-routes.geojson    itinerários dessas linhas (gerado, feed da EMTU)
   data/emtu-stops.geojson     pontos dessas linhas (gerado, feed da EMTU)
+  data/gtfs/emtu-seletivo.zip GTFS dessas linhas (gerado, feed da EMTU; horários nas
+                              paradas estimados pela distância), livre para reúso
 data/bike-fleet.json          prefixos dos ônibus com suporte (gerado, cadastro da frota)
 functions/api/buses.js        só os ônibus da frota com suporte (cache de 20 s), via relay em produção
 functions/api/emtu-buses.js   ônibus seletivos da EMTU ao vivo (cache de 20 s), via relay

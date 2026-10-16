@@ -6,8 +6,10 @@
 //   public/data/lines/<code>.json   route and stops of every SPTrans bus line, from the GTFS
 //   public/data/emtu-routes.geojson routes of the EMTU seletivo lines, from the EMTU feed
 //   public/data/emtu-stops.geojson  stops of those lines, from the EMTU feed
+//   public/data/gtfs/emtu-seletivo.zip GTFS of those lines (estimated stop times), from the EMTU feed
 //   public/data/bike-parking.geojson bicicletários and paraciclos, from OSM and GeoSampa
 //   public/data/routing/transit.json transit network for the trip planner, from the SPTrans GTFS
+//                                    and the EMTU seletivo GTFS above
 //   public/data/routing/streets.bin  street graph for the trip planner, from OSM and amora's
 //                                    elevations (only on request: `streets`, ~30 Overpass calls)
 //   data/bike-fleet.json            SPTrans buses with a bike rack, from the fleet CSV in assets/
@@ -18,10 +20,12 @@
 import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { unzipSync, strFromU8 } from 'fflate';
+import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate';
 
 import { round, simplify } from '../functions/_lib/geometry.js';
-import { emtuFeatures, emtuGet } from './emtu.mjs';
+import { dayType } from '../public/js/schedule.js';
+import { spParts } from '../public/js/time.js';
+import { emtuFeatures, emtuGet, emtuGtfs, toCsv } from './emtu.mjs';
 import { assignLanes } from './lanes.mjs';
 import { buildParking } from './parking.mjs';
 import { buildTransit } from './routing.mjs';
@@ -31,6 +35,7 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const DATA = join(ROOT, 'public', 'data');
 const FLEET_CSV = join(ROOT, 'assets', '00_businfo_consolidado.csv');
 const FLEET_JSON = join(ROOT, 'data', 'bike-fleet.json');
+const EMTU_GTFS = join(ROOT, 'public', 'data', 'gtfs', 'emtu-seletivo.zip');
 // Vehicle types with a bike rack: the 23 m superarticulated buses ("Articulado 23m").
 // The electric "E-Articulado 23m" (eA3) has no rack and is left out.
 const BIKE_TYPES = new Set(['A23']);
@@ -313,6 +318,19 @@ async function buildEmtu() {
   await writeFile(join(DATA, 'emtu-routes.geojson'), JSON.stringify({ type: 'FeatureCollection', features: routes }));
   await writeFile(join(DATA, 'emtu-stops.geojson'), JSON.stringify({ type: 'FeatureCollection', features: stops }));
   console.log(`  wrote emtu-routes.geojson: ${Object.keys(byCode).length} lines, ${routes.length} directions; emtu-stops.geojson: ${stops.length} stops`);
+
+  // Lines without per-day timetables only give today's: on a weekend or holiday the
+  // weekday timetable would be lost, so keep the last weekday build.
+  const today = spParts().iso;
+  if (dayType(today) !== 'weekday' && await stat(EMTU_GTFS).catch(() => null)) {
+    console.warn(`  ${today} is not a weekday: keeping gtfs/emtu-seletivo.zip`);
+    return;
+  }
+  const gtfs = emtuGtfs(details, config, { today });
+  await mkdir(dirname(EMTU_GTFS), { recursive: true });
+  const zip = zipSync(Object.fromEntries(Object.entries(gtfs).map(([name, rows]) => [name, strToU8(toCsv(rows))])), { level: 9, mtime: new Date('2000-01-01') });
+  await writeFile(EMTU_GTFS, zip);
+  console.log(`  wrote gtfs/emtu-seletivo.zip: ${gtfs['trips.txt'].length} trips, ${gtfs['stop_times.txt'].length} stop times, ${(zip.length / 1e3).toFixed(0)} kB`);
 }
 
 // ---------------------------------------------------------------- bike parking (OSM + GeoSampa)
@@ -342,13 +360,20 @@ async function buildParkingLayer() {
 // ---------------------------------------------------------------- routing (GTFS)
 
 async function buildRouting() {
-  console.log('Routing: building the transit network from the SPTrans GTFS');
+  console.log('Routing: building the transit network from the SPTrans and EMTU seletivo GTFS');
   const zip = await cached('sptrans-gtfs.zip', () =>
     firstOk(GTFS_URLS, { headers: { 'User-Agent': 'curl/8 bicibusaosampa' } }),
   );
   const names = ['routes.txt', 'trips.txt', 'stops.txt', 'stop_times.txt', 'frequencies.txt', 'calendar.txt'];
   const files = unzipSync(new Uint8Array(zip), { filter: (f) => names.includes(f.name) });
-  const table = (name) => parseCsv(strFromU8(files[name]));
+  // The EMTU seletivo feed (built by `emtu`) joins in: its ids don't clash with SPTrans'.
+  let emtu = {};
+  try {
+    emtu = unzipSync(new Uint8Array(await readFile(EMTU_GTFS)));
+  } catch {
+    console.warn(`  ${EMTU_GTFS} not found, building without the EMTU seletivo lines`);
+  }
+  const table = (name) => [files, emtu].flatMap((f) => (f[name] ? parseCsv(strFromU8(f[name])) : []));
   const network = buildTransit({
     routes: table('routes.txt'),
     trips: table('trips.txt'),

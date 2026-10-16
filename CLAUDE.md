@@ -80,6 +80,8 @@ append `window.__map = map;`.
       without a bike lane or track 5× in route choice; reported times stay real.
     - `live-trips.js`: live 23m buses from `/api/buses` turned into planner trips on
       the line they're actually running.
+    - EMTU seletivo patterns (`p.bikes`) ride on their estimated timetable in both
+      layers, live coaches aside; their legs carry `hold` (teal, "no bagageiro").
     - `planner.js` + `planner-worker.js`: the "Planejar viagem" section (open by
       default). Points: origin, stops, destination, each a search box (Photon) or a tap
       on the empty map (fills the first empty slot; with all set, the tap becomes the new
@@ -106,7 +108,17 @@ append `window.__map = map;`.
       transit: the planner's direct leg) = `cycle`. The worker downloads the network on the first point or
       search, not on page load.
   - `data/routing/transit.json`: **generated** (`npm run build:data -- routing`) from the
-    GTFS: stops and per line-direction patterns (stop offsets + departures).
+    SPTrans GTFS plus `data/gtfs/emtu-seletivo.zip`: stops and per line-direction patterns
+    (stop offsets + departures; timetabled trips with equal stops and offsets fold into
+    one pattern). `bikes: 1` (GTFS `bikes_allowed`) = the bike boards at any hour.
+  - `data/gtfs/emtu-seletivo.zip`: **generated** (`-- emtu`, so build it before
+    `routing`) GTFS of the seletivo lines, published for reuse. EMTU has no current
+    GTFS: stops, route, `tempo` and per-day departures come from lineDetails, stop times
+    are spread along the route by distance (`timepoint=0`, `distancesAlong()` matches
+    stops in order), holidays run the Sunday service via `calendar_dates`. Lines with
+    empty per-day lists only have `horarios`, today's timetable: it goes to the day type
+    of the build date, so on weekends and holidays (e.g. a Monday holiday) the build
+    keeps the existing zip. Passes the MobilityData validator with warnings only.
   - `data/routing/streets.bin`: **generated on request only** (`npm run build:data --
     streets`, not in the weekly run): OSM streets from ~30 Overpass tiles plus node
     elevations from amora's baked graph (`telhas.pedalhidrografi.co/viario/`). Must
@@ -150,7 +162,7 @@ append `window.__map = map;`.
   `sptrans-token`, `relay-key`. Deploy command in `relay/README.md`.
 - `functions/api/emtu-buses.js`: live EMTU seletivo coaches via the relay's `/emtu`
   (mapping in `functions/_lib/emtu.js`). Fetched separately from `/api/buses`, so
-  either feed can fail alone. Not in the trip planner (no EMTU GTFS in `transit.json`).
+  either feed can fail alone.
 - `functions/api/route.js`: route of any line from GeoSampa WFS (`geoportal:linha_onibus`),
   the fallback for off-route lines missing from `data/lines/`. Cached a day.
 - `functions/api/rail-status.js`: proxy for the Motiva line-status feed, which covers

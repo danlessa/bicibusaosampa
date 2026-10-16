@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 
 import { emtuVehicles } from '../functions/_lib/emtu.js';
 import { decodePolyline } from '../functions/_lib/geometry.js';
-import { emtuFeatures, stopName } from '../scripts/emtu.mjs';
+import { departures, distancesAlong, emtuFeatures, emtuGtfs, stopName, toCsv } from '../scripts/emtu.mjs';
 import { assignLanes } from '../scripts/lanes.mjs';
 
 const NOW = Date.UTC(2026, 9, 16, 0, 50);
@@ -51,7 +51,7 @@ test('emtuFeatures builds routes and merges shared stops', () => {
       linhas: [{
         codigo: '280', tarifa: 14.2,
         rotas: [
-          { sentido: 'ida', destino: 'SBC', encode: '_p~iF~ps|U_ulLnnqC', pontos: [ponto(1, 'Rua A, 10 - Centro, Osasco - SP, 06020-012, Brasil'), ponto(2, 'B')] },
+          { sentido: 'ida', destino: 'SAO BERNARDO DO CAMPO', encode: '_p~iF~ps|U_ulLnnqC', pontos: [ponto(1, 'Rua A, 10 - Centro, Osasco - SP, 06020-012, Brasil'), ponto(2, 'B')] },
           { sentido: 'volta', destino: 'Osasco', encode: '_ulLnnqC_p~iF~ps|U', pontos: [ponto(2, 'B')] },
         ],
       }],
@@ -62,7 +62,7 @@ test('emtuFeatures builds routes and merges shared stops', () => {
   const config = { lines: [{ code: '280', name: 'Osasco – SBC', operator: 'Anhanguera' }, { code: '378' }, { code: '999' }] };
   const { routes, stops, missing } = emtuFeatures(details, config);
   assert.deepEqual(missing, ['999']);
-  assert.deepEqual(routes.map((f) => [f.properties.code, f.properties.sentido, f.properties.headsign]), [['280', 1, 'SBC'], ['280', 2, 'Osasco'], ['378', 1, undefined]]);
+  assert.deepEqual(routes.map((f) => [f.properties.code, f.properties.sentido, f.properties.headsign]), [['280', 1, 'Sao Bernardo do Campo'], ['280', 2, 'Osasco'], ['378', 1, '']]);
   assert.equal(routes[0].properties.fare, 14.2);
   assert.equal(routes[0].properties.agency, 'emtu');
   assert.deepEqual(stops.map((f) => [f.properties.id, f.properties.lines]), [['emtu-1', ['280']], ['emtu-2', ['280', '378']]]);
@@ -87,4 +87,59 @@ test('the EMTU config lists unique seletivo lines with names', () => {
   assert.ok(codes.every((c) => /^[0-9A-Z]{1,8}$/.test(c) && !c.includes('-')), 'EMTU codes must not look like SPTrans ones');
   assert.ok(config.lines.every((l) => l.name && l.operator));
   assert.ok(config.rules.summary);
+});
+
+test('departures reads the timetable lists, past midnight after a wrap', () => {
+  assert.deepEqual(departures('4:40,5:15, 23:50,0:20'), [16_800, 18_900, 85_800, 87_600]);
+  assert.deepEqual(departures(''), []);
+  assert.deepEqual(departures(null), []);
+});
+
+test('distancesAlong keeps stops in order where the route passes a street twice', () => {
+  // East 2 km, then back west on the other carriageway, 16 m south. Stops 1 km out on
+  // each side: the return stop is 16 m from the outward pass, but belongs 2 km later.
+  const k = 1 / (111_320 * Math.cos((23.55 * Math.PI) / 180));
+  const south = -23.55 - 16 / 110_540;
+  const line = [[-46.7, -23.55], [-46.7 + 2000 * k, -23.55], [-46.7 + 2000 * k, south], [-46.7, south]];
+  const d = distancesAlong(line, [line[0], [-46.7 + 1000 * k, -23.55], [-46.7 + 1000 * k, south], line[3]]);
+  assert.ok(Math.abs(d[1] - 1000) < 5 && Math.abs(d[2] - 3016) < 5 && Math.abs(d[3] - 4016) < 5, d.join());
+  assert.equal(distancesAlong([[0, 0]], [[0, 0]]), null);
+});
+
+test('emtuGtfs spreads the trip time along the route and runs Sundays on holidays', () => {
+  const encode = 'nrvnC~a`|G?_pR'; // -23.55, -46.7 → -23.55, -46.6
+  const pontos = [0, 0.25, 1].map((f, i) => ({ id: 10 + i, sequencia: i, endereco: `P${i}`, latitude: -23.55, longitude: -46.7 + f * 0.1 }));
+  const details = {
+    280: { linhas: [{ codigo: '280', rotas: [{ sentido: 'ida', destino: 'Leste', tempo: 40, encode, pontos, horariosdiasuteis: '5:00,6:00', horariossabados: '', horariosdomingosferiados: '8:00' }] }] },
+    838: { linhas: [{ codigo: '838', rotas: [{ sentido: 'volta', destino: 'Oeste', tempo: 20, encode, pontos, horarios: '17:35', horariosdiasuteis: '', horariossabados: '', horariosdomingosferiados: '' }] }] },
+  };
+  const config = { lines: [{ code: '280', name: 'A – B', operator: 'Anhanguera' }, { code: '838', name: 'C – D' }] };
+  // 2026-10-17 is a Saturday; 2026-11-02 (Finados) a Monday.
+  const g = emtuGtfs(details, config, { today: '2026-10-17' });
+
+  assert.deepEqual(g['trips.txt'].map((t) => [t.trip_id, t.service_id, t.direction_id, t.bikes_allowed]), [
+    ['280-ida-weekday-0500', 'emtu-weekday', 0, 1],
+    ['280-ida-weekday-0600', 'emtu-weekday', 0, 1],
+    ['280-ida-sunday-0800', 'emtu-sunday', 0, 1],
+    // Only `horarios`: the timetable of the day the feed was read (a Saturday).
+    ['838-volta-saturday-1735', 'emtu-saturday', 1, 1],
+  ]);
+  const times = g['stop_times.txt'].filter((s) => s.trip_id === '280-ida-weekday-0500');
+  assert.deepEqual(times.map((s) => s.arrival_time), ['05:00:00', '05:10:00', '05:40:00']);
+  assert.deepEqual(times.map((s) => s.timepoint), [1, 0, 0]);
+  assert.equal(times[1].stop_id, 'emtu-11');
+
+  assert.deepEqual(
+    g['calendar_dates.txt'].filter((d) => d.date === '20261102'),
+    [{ service_id: 'emtu-sunday', date: '20261102', exception_type: 1 }, { service_id: 'emtu-weekday', date: '20261102', exception_type: 2 }],
+  );
+  assert.equal(g['calendar.txt'][0].start_date, '20261017');
+  assert.equal(g['calendar.txt'][0].end_date, '20271017');
+  assert.equal(g['routes.txt'][0].route_color, '0E7490');
+  assert.ok(g['shapes.txt'].length >= 2);
+});
+
+test('toCsv quotes commas and quotes', () => {
+  assert.equal(toCsv([{ a: 'x, y', b: 'say "hi"', c: null }]), 'a,b,c\n"x, y","say ""hi""",\n');
+  assert.equal(toCsv([]), '');
 });

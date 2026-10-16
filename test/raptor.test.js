@@ -91,6 +91,22 @@ test('with the bike, buses are the usual 23m lines offline and the live 23m buse
   assert.equal(rides(online)[0].live, '12345');
 });
 
+test('EMTU seletivo coaches (bikes) take the bike at any hour, on their timetable', () => {
+  const net = network([
+    { route: '280', mode: 'bus', perStop: 90, bikes: 1 },
+    { route: 'HAB-10', mode: 'bus', perStop: 60 },
+  ]);
+  // At rush hour the 23m buses don't take bikes; the coach does, in its luggage hold.
+  for (const live of [null, new Map()]) {
+    const day = queryDay(net, RUSH);
+    const ride = rides(plan(net, { from: ORIGIN, to: DEST, date: RUSH, profile: 'carry', live, day })[0])[0];
+    assert.equal(ride?.route, '280');
+    assert.equal(ride.withBike, true);
+    assert.equal(ride.hold, true);
+    assert.equal(ride.estimated, true);
+  }
+});
+
 test('the bike can be left at a bicicletário to take a line that does not carry it', () => {
   const lines = [{ route: 'CONV-10', mode: 'bus', perStop: 60 }];
   const parked = plan(network(lines, { lots: [[LON[0], 'cadastro']] }), { from: ORIGIN, to: DEST, date: NOON, profile: 'bike' })[0];
@@ -162,6 +178,28 @@ const DEEP = {
   lines: { 1: 'profunda', 2: 'profunda' },
   transfers: [{ between: ['Estação 5|1', 'Estação 6|2'], walkS: 240, bikeS: 420 }],
 };
+
+test('buildTransit folds timetabled trips with the same stops and times, and keeps bikes_allowed', () => {
+  const trip = (id, start, end) => [
+    { trip_id: id, stop_id: 'a', stop_sequence: '0', arrival_time: start, departure_time: start },
+    { trip_id: id, stop_id: 'b', stop_sequence: '1', arrival_time: end, departure_time: end },
+  ];
+  const net = buildTransit({
+    routes: [{ route_id: '280', route_type: '3' }],
+    trips: ['t1', 't2', 't3'].map((trip_id) => ({ route_id: '280', service_id: 'emtu-weekday', trip_id, trip_headsign: 'SBC', direction_id: '0', bikes_allowed: '1' })),
+    stops: [
+      { stop_id: 'a', stop_name: 'Osasco', stop_lat: '-23.53', stop_lon: '-46.77' },
+      { stop_id: 'b', stop_name: 'SBC', stop_lat: '-23.71', stop_lon: '-46.55' },
+    ],
+    stopTimes: [...trip('t2', '07:00:00', '07:45:00'), ...trip('t1', '05:00:00', '05:45:00'), ...trip('t3', '25:00:00', '25:45:00')],
+    frequencies: [],
+    calendar: [{ service_id: 'emtu-weekday', monday: '1', tuesday: '1', wednesday: '1', thursday: '1', friday: '1', saturday: '0', sunday: '0' }],
+  });
+  assert.equal(net.patterns.length, 1);
+  assert.deepEqual(net.patterns[0].offsets, [0, 2700]);
+  assert.deepEqual(net.patterns[0].departures, [5 * 3600, 7 * 3600, 25 * 3600]);
+  assert.equal(net.patterns[0].bikes, 1);
+});
 
 test('changing lines with the bike walks it between the stations', () => {
   const j = plan(twoLines(), { from: ORIGIN, to: { lat: NORTH, lon: LON[10] }, date: NOON, profile: 'carry' })[0];

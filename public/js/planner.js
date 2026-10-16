@@ -14,7 +14,7 @@ const PACES = [
   ['competicao', 'Competição'],
 ];
 const GPS_ICON = '<svg viewBox="0 0 512 512" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M445 4 29 195c-48 23-32 93 19 93h176v176c0 51 70 67 93 19L508 67c16-38-25-79-63-63z"/></svg>';
-const COLORS = { walk: '#57534e', bike: '#dc2626', busBike: '#16a34a', bus: '#1c1917' };
+const COLORS = { walk: '#57534e', bike: '#dc2626', busBike: '#16a34a', bus: '#1c1917', emtu: '#0e7490' };
 const MODE_ICON = { walk: '🚶', bike: '🚲', park: '🅿️', station: '🚉', bus: '🚌', metro: '🚇', train: '🚆' };
 
 const $ = (sel) => document.querySelector(sel);
@@ -596,6 +596,7 @@ export function initPlanner({ map, rotatingPane, locate, sheetInsets, railLines,
   function legColor(leg) {
     if (leg.kind === 'ride') {
       if (leg.mode !== 'bus') return railLines.get(leg.rail)?.color ?? COLORS.bus;
+      if (leg.hold) return COLORS.emtu;
       return leg.withBike ? COLORS.busBike : COLORS.bus;
     }
     return COLORS[leg.kind] ?? COLORS.walk;
@@ -637,7 +638,7 @@ export function initPlanner({ map, rotatingPane, locate, sheetInsets, railLines,
         <span class="detail">${esc(ACCESS[leg.at.access]?.label ?? '')}</span></div></li>`;
     }
     const notes = [];
-    if (leg.withBike) notes.push(leg.mode === 'bus' ? 'Com a bici: porta traseira' : 'Com a bici: último carro');
+    if (leg.withBike) notes.push(leg.hold ? 'Com a bici: no bagageiro, se houver espaço' : leg.mode === 'bus' ? 'Com a bici: porta traseira' : 'Com a bici: último carro');
     if (leg.live) notes.push(`Ônibus ${esc(leg.live)} ao vivo`);
     else if (leg.estimated) notes.push('Horário estimado');
     return `<li><span class="leg-icon">${MODE_ICON[leg.mode]}</span><div><b>${rideBadge(leg)} ${esc(lineName(leg))}</b>

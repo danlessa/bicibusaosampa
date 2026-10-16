@@ -8,7 +8,9 @@
 //     23m) inside the bus bike hours; riding between stops. A bicycle-enabled bus is a
 //     vehicle, not a line: with live data, the 23m buses on the road (live-trips.js)
 //     are the trips, whatever line they run. Without it, or past the live horizon, the
-//     usual lines in bike-buses.json stand in for them.
+//     usual lines in bike-buses.json stand in for them. EMTU seletivo coaches
+//     (patterns with `bikes`, from GTFS bikes_allowed) take the bike in the luggage hold
+//     at any hour, on their timetable.
 //   - The bike can be left at a bicicletário near a stop (layer 1 → 0), never picked up.
 //
 // Each label carries two criteria, arrival time and energy (McRAPTOR), so the planner
@@ -133,6 +135,7 @@ export function loadNetwork({ transit, railLines, bikeBuses, parking, streets = 
     offsets: Int32Array.from(p.offsets),
     departures: Int32Array.from(p.departures),
     usualBikeBus: p.mode === 'bus' && usual.has(p.route),
+    bikes: p.bikes === 1,
   }));
 
   const byRouteDir = new Map();
@@ -326,6 +329,8 @@ function provider(net, day, live, pi, layer) {
     if (!m) return null;
     return day.active[pi] ? scheduled(p, (t) => inMask(m, t)) : null;
   }
+  // Timetables spread along the route (EMTU), not measured stop by stop: estimates.
+  if (p.bikes) return day.active[pi] ? scheduled(p, () => true, { estimated: true }) : null;
   if (layer === 0) return day.active[pi] ? scheduled(p, () => true) : null;
 
   const gate = (t) => inMask(day.busBike, t);
@@ -713,7 +718,7 @@ function search(net, { from, to, date = new Date(), profile = 'bike', power = PO
       } else if (l.kind === RIDE) {
         const p = net.patterns[l.pi], trips = providerFor(l.pi, l.layer);
         legs.push({
-          kind: 'ride', mode: p.mode, route: p.route, rail: p.rail, headsign: p.headsign, withBike: l.layer === 1,
+          kind: 'ride', mode: p.mode, route: p.route, rail: p.rail, headsign: p.headsign, withBike: l.layer === 1, hold: p.bikes,
           from: stopPt(p.stops[l.b]), to: stopPt(p.stops[l.a]), depart: trips.time(l.h, l.b), arrive: l.t,
           stops: l.a - l.b, kcal: kcal(l.e - before.e), ...trips.info(l.h),
           path: Array.from(p.stops.subarray(l.b, l.a + 1), (x) => [lat[x], lon[x]]),
