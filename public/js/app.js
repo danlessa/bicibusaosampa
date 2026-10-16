@@ -39,9 +39,12 @@ const $ = (sel) => document.querySelector(sel);
 
 // While a planned trip is on the map, the bus and rail lines it doesn't use fade out
 // (stops, stations and parking fade as a whole in style.css). null = nothing planned.
-let focus = null; // { buses: Set(code), rails: Set(ref) }
+// A tapped bus does the same for its own line while its popup is open (busFocus wins
+// over the planner's focus, which comes back when the popup closes).
+let focus = null; // { buses: Set(code), rails: Set(ref) | null }
+let planFocus = null, busFocus = null;
 const FADED = 0.2;
-const railOpacity = (line) => (focus && !focus.rails.has(String(line.ref)) ? FADED : 1);
+const railOpacity = (line) => (focus?.rails && !focus.rails.has(String(line.ref)) ? FADED : 1);
 const busOpacity = (code) => (focus && !focus.buses.has(code) ? FADED : 1);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 
@@ -377,10 +380,13 @@ const MIN_ROUTE_PX = 1.5;
 const metersPerPixel = (zoom) => (156_543.03 * Math.cos((-23.55 * Math.PI) / 180)) / 2 ** zoom;
 const routeWeight = (zoom) => Math.max(MIN_ROUTE_PX, ROUTE_METERS / metersPerPixel(zoom));
 const laneOffset = (lane, zoom) => (lane + 0.6) * routeWeight(zoom);
-map.on('zoomend', () => {
-  const weight = routeWeight(map.getZoom());
-  busRouteLayer.eachLayer((r) => r.setStyle({ weight }));
-});
+// The route of a tapped bus (its direction) is drawn thicker, on top of the others.
+let highlighted = null; // { code, sentido }
+const HIGHLIGHT_PX = 5;
+const isHighlighted = (r) => highlighted && r.lineCode === highlighted.code
+  && (highlighted.sentido == null || r.sentido === highlighted.sentido);
+const weightOf = (r) => routeWeight(map.getZoom()) + (isHighlighted(r) ? HIGHLIGHT_PX : 0);
+map.on('zoomend', () => busRouteLayer.eachLayer((r) => r.setStyle({ weight: weightOf(r) })));
 
 function addRoute(line, sentido, coordinates, lane, headsign) {
   const latlngs = coordinates.map(([lon, lat]) => [lat, lon]);
@@ -393,7 +399,10 @@ function addRoute(line, sentido, coordinates, lane, headsign) {
     offset: (zoom) => laneOffset(lane, zoom),
     color: lineColor(line),
   }).bindTooltip(`${esc(line.code)}${headsign ? ` → ${esc(headsign)}` : ''}`, { sticky: true });
+  route.lineCode = line.code;
+  route.sentido = sentido;
   busRouteLayer.addLayer(route);
+  if (isHighlighted(route)) { route.setStyle({ weight: weightOf(route) }); route.bringToFront(); }
   line.routes.push(route);
   line.bounds = line.bounds ? line.bounds.extend(route.getBounds()) : route.getBounds();
 }
@@ -673,6 +682,8 @@ function syncBusMarkers() {
       if (!marker) {
         marker = L.marker([bus.lat, bus.lon], { keyboard: false, icon })
           .bindPopup(() => busPopup(busById.get(id) ?? bus, busStatusNow))
+          .on('popupopen', () => highlightBus(busById.get(id) ?? bus))
+          .on('popupclose', () => highlightBus(null))
           .addTo(busLayer);
         busMarkers.set(id, marker);
       } else {
@@ -845,11 +856,33 @@ initSheets();
 initUpdates();
 const locate = initLocate(map);
 
-function focusLines(used) {
-  focus = used;
+function applyFocus() {
+  focus = busFocus ?? planFocus;
   for (const line of lines) for (const t of line.tracks) t.setStyle({ opacity: railOpacity(line) });
   for (const line of busLineByCode.values()) for (const r of line.routes) r.setStyle({ opacity: busOpacity(line.code) });
   for (const bus of state.buses) busMarkers.get(busId(bus))?.setOpacity(busOpacity(bus.line));
+}
+
+/** Planner: fade what a planned trip doesn't use (null = nothing planned). */
+function focusLines(used) {
+  planFocus = used;
+  applyFocus();
+}
+
+/** Highlights the route of `bus` (its direction) and fades the other bus lines; null undoes it. */
+function highlightBus(bus) {
+  const line = bus && busLineByCode.get(bus.line);
+  highlighted = line ? { code: line.code, sentido: line.routes.some((r) => r.sentido === bus.sentido) ? bus.sentido : null } : null;
+  busFocus = line ? { buses: new Set([line.code]), rails: planFocus?.rails ?? null } : null;
+  applyFocus();
+  for (const r of busRouteLayer.getLayers()) {
+    r.setStyle({ weight: weightOf(r) });
+    if (isHighlighted(r)) r.bringToFront();
+  }
+  // A line it doesn't usually run may not be drawn yet: highlight it once it is.
+  if (line?.unusual && !line.routes.length) {
+    loadUnusualRoute(line).then(() => { if (highlighted?.code === line.code && line.routes.length) highlightBus(bus); });
+  }
 }
 
 // Bus arrows point the way the bus goes on screen, so they turn when the map does.
