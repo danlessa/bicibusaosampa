@@ -27,6 +27,7 @@ const SHELL = [
   '/js/rail.js', '/js/schedule.js', '/js/streets.js', '/js/time.js', '/js/ui.js',
   '/vendor/leaflet-rotate/leaflet-rotate.js',
   '/data/rail-lines.json', '/data/bike-buses.json', '/data/rail.geojson', '/data/bus-routes.geojson',
+  '/data/emtu-seletivo.json', '/data/emtu-routes.geojson',
 ];
 const CDN = [
   'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css',

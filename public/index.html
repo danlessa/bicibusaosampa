@@ -30,6 +30,7 @@
   <link rel="modulepreload" href="js/ui.js">
   <link rel="preload" href="data/rail-lines.json" as="fetch" crossorigin>
   <link rel="preload" href="data/bike-buses.json" as="fetch" crossorigin>
+  <link rel="preload" href="data/emtu-seletivo.json" as="fetch" crossorigin>
   <link rel="preload" href="data/rail.geojson" as="fetch" crossorigin>
   <link rel="preload" href="data/bus-routes.geojson" as="fetch" crossorigin>
   <link rel="preconnect" href="https://tile.openstreetmap.org">
@@ -134,8 +135,16 @@
         </details>
       </section>
 
+      <section id="emtu-section">
+        <details id="emtu-details">
+          <summary><h2>Seletivos EMTU <span id="emtu-count" class="count"></span></h2></summary>
+          <p id="emtu-status" class="note"></p>
+          <ul id="emtu-list" class="lines"></ul>
+        </details>
+      </section>
+
       <footer>
-        <p><a href="https://github.com/danlessa/bicibusaosampa">Código</a> · SPTrans · <a href="https://www.openstreetmap.org/copyright">© OpenStreetMap</a> · Topografia: <a href="https://amora.pedalhidrografi.co/">Pedal Hidrográfico</a> · GeoSampa · Photon · Leaflet</p>
+        <p><a href="https://github.com/danlessa/bicibusaosampa">Código</a> · SPTrans · EMTU · <a href="https://www.openstreetmap.org/copyright">© OpenStreetMap</a> · Topografia: <a href="https://amora.pedalhidrografi.co/">Pedal Hidrográfico</a> · GeoSampa · Photon · Leaflet</p>
       </footer>
     </div>
   </aside>
@@ -158,6 +167,7 @@
         <li><span class="swatch" style="background:#9333ea"></span>Bici liberada, fora da rota</li>
         <li><span class="swatch dashed" style="background:#eab308"></span>Fora do horário (contorno tracejado)</li>
         <li><span class="swatch dashed" style="background:#f97316"></span>Fora do horário e da rota</li>
+        <li><span class="swatch square" style="background:#0e7490"></span>Seletivo EMTU (bici no bagageiro)</li>
       </ul>
       <h3 class="legend-title">Onde deixar a bici</h3>
       <ul class="legend">

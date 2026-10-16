@@ -15,7 +15,7 @@ light, reusable-data choices.
 ```sh
 npm run dev          # wrangler pages dev → http://localhost:8788 (reads SPTRANS_TOKEN from .env)
 npm test             # node --test: schedule rules, holidays, headings, lanes, bike parking, function helpers
-npm run build:data   # regenerate data files (`-- rail`, `-- bus`, `-- parking` or `-- fleet` for one)
+npm run build:data   # regenerate data files (`-- rail`, `-- bus`, `-- emtu`, `-- parking` or `-- fleet` for one)
 node scripts/suggest-lines.mjs [--write]   # compare live rack buses with the expected lines
 node scripts/plan.mjs --from=LAT,LON --to=LAT,LON [--at=…] [--power=suave]   # try the trip planner
 ```
@@ -114,6 +114,14 @@ append `window.__map = map;`.
     - `parking.js`: bike parking access labels and open/closed status.
   - `data/rail-lines.json`, `data/bike-buses.json`: **hand-edited** config (lines,
     colours, operating hours, bike rules, the *expected* lines of the rack buses).
+  - `data/emtu-seletivo.json`: **hand-edited** list of the EMTU seletivo lines (from
+    EMTU's *Relatório Tarifário RMSP*, service SELETIVO) and the bike rule text.
+  - `data/emtu-routes.geojson`, `data/emtu-stops.geojson`: **generated** (`-- emtu`)
+    from the EMTU feed (`scripts/emtu.mjs`). Lanes keep clear of the SPTrans routes
+    (`assignLanes(…, { taken })`), so build `bus` first. Fares come from the feed.
+    In app.js the EMTU lines live in `busLineByCode` with `agency: 'emtu'` and share
+    the bus route, live bus and stop layers; vehicles are keyed by `busId()` because
+    prefixes are only unique per operator.
   - `data/*.geojson`: **generated** by `scripts/build-data.mjs`. Never edit by hand.
     Bus routes carry a precomputed `lane` (`scripts/lanes.mjs`).
   - `data/bike-parking.geojson`: **generated** bicicletários and paraciclos in the
@@ -136,8 +144,13 @@ append `window.__map = map;`.
   to Olho Vivo directly with `SPTRANS_TOKEN`.
 - `relay/`: tiny Node service on Cloud Run (GCP project `bicisampa`,
   `southamerica-east1`, service `olhovivo-relay`). `GET /posicao` with `X-Relay-Key`
-  returns the raw `/Posicao` JSON, cached 15 s. Secrets in Secret Manager:
+  returns the raw `/Posicao` JSON, cached 15 s. `GET /emtu?linhas=…` returns the
+  EMTU vehicles and direction names of those lines, cached 15 s. Redeploy the relay
+  after changing it (`relay/` is deployed on its own). Secrets in Secret Manager:
   `sptrans-token`, `relay-key`. Deploy command in `relay/README.md`.
+- `functions/api/emtu-buses.js`: live EMTU seletivo coaches via the relay's `/emtu`
+  (mapping in `functions/_lib/emtu.js`). Fetched separately from `/api/buses`, so
+  either feed can fail alone. Not in the trip planner (no EMTU GTFS in `transit.json`).
 - `functions/api/route.js`: route of any line from GeoSampa WFS (`geoportal:linha_onibus`),
   the fallback for off-route lines missing from `data/lines/`. Cached a day.
 - `functions/api/rail-status.js`: proxy for the Motiva line-status feed, which covers
@@ -161,6 +174,14 @@ append `window.__map = map;`.
   (`sptrans-token`, for the relay) and as a Pages secret. Pages also has
   `OLHOVIVO_RELAY_URL` and `OLHOVIVO_RELAY_KEY`. Pages only picks up a new secret on
   the next deployment.
+- **The EMTU feed** (`rest-emtu.noxxonsat.com.br/rest/lineDetails?linha=<code>`, one
+  line per call; the feed behind EMTU's apps) has served an expired certificate since
+  2025-04. Browsers, Workers (workerd) and Node's default fetch refuse it, and there's
+  no plain HTTP. `relay/server.mjs` and `scripts/emtu.mjs` accept `CERT_HAS_EXPIRED`
+  only, for that host only, with a fresh connection per request (`agent: false`).
+  Never set `NODE_TLS_REJECT_UNAUTHORIZED=0`. It sends `Access-Control-Allow-Origin: *`,
+  so if the certificate is ever renewed the browser could call it directly.
+  `dataUltimaTransmissao` is ms since the epoch; `sentidoLinha` is ida/volta/circular.
 - **Cloud Run reserves paths ending in `z`** (e.g. `/healthz`); the relay uses `/health`.
 - **Olho Vivo** (`api.olhovivo.sptrans.com.br/v2.1`):
   - Blocks requests from Cloudflare Workers since ~2026-10 (HTTP 403, Cloudflare error
@@ -199,7 +220,10 @@ append `window.__map = map;`.
   from 14:00, and all day on Sundays and holidays. SPTrans publishes no list of these
   buses or lines; we use the fleet register CSV for buses and `suggest-lines.mjs` for
   the expected lines (3+ rack buses that are 20%+ of the line's buses).
-- **Intercity buses (Artesp, formerly EMTU)** don't carry bikes and are out of scope.
+- **Intercity buses (Artesp, formerly EMTU)** don't carry bikes and are out of scope,
+  except the **seletivo** lines (coaches with a luggage hold): the bike goes in the
+  hold if there's room. EMTU publishes no rule or hours for this, so the map shows no
+  bike status for them, only the rule text from `emtu-seletivo.json`.
 - **Bike parking:** station and terminal bicicletários (Metrô, CPTM, ViaQuatro,
   ViaMobilidade, SPTrans terminals run by Socicam, EMTU, Tembici) are free but need an
   on-site sign-up with a photo ID (CPTM also asks for proof of address). They're
@@ -216,7 +240,8 @@ append `window.__map = map;`.
 - **Bus colours** (icons, routes, badges) combine two questions: bikes allowed on buses
   at this hour, and is this one of the line's usual superarticulated lines?
   Allowed + usual = green, allowed + off-route = purple, outside hours + usual =
-  yellow, outside hours + off-route = orange.
+  yellow, outside hours + off-route = orange. EMTU seletivo coaches and routes are
+  teal `#0e7490` whatever the hour (no published rule), with square-cornered icons.
 - **Bus icons:** a rounded box in the bus colour with a white arrow pointing the
   direction of travel.
 - **Bus routes:** solid lines in the bus colour, 10 m wide on the ground (never under

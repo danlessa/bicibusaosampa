@@ -1,0 +1,29 @@
+{
+  "_comment": "Linhas seletivas da EMTU (ônibus rodoviários intermunicipais, só passageiros sentados, com bagageiro). A EMTU não publica regra para bicicletas nelas: o texto de 'rules.summary' é nossa orientação, não uma regra oficial. Lista tirada do Relatório Tarifário RMSP da EMTU (serviço SELETIVO). Itinerários, pontos e tarifas vêm de rest-emtu.noxxonsat.com.br (npm run build:data -- emtu); posições ao vivo pelo relay (/emtu).",
+  "rules": {
+    "source": "https://www.emtu.sp.gov.br/EMTU/pdf/RELAT%C3%93RIO%20TARIF%C3%81RIO%20RMSP%20-%20SITE%20%2027.08.25.pdf",
+    "summary": "A bici vai no bagageiro do ônibus, se houver espaço. A EMTU não publica uma regra para bicicletas nos seletivos: confirme com o motorista."
+  },
+  "lines": [
+    { "code": "200", "operator": "Unileste", "name": "Mogi das Cruzes (Terminal Rodoviário) – Terminal Tietê, via Arujá" },
+    { "code": "201", "operator": "Unileste", "name": "Mogi das Cruzes (Terminal Rodoviário) – Terminal Tietê" },
+    { "code": "206", "operator": "Unileste", "name": "Guararema (Centro) – Terminal Tietê" },
+    { "code": "214", "operator": "Unileste", "name": "Suzano (Centro) – Terminal Tietê, via Itaquaquecetuba" },
+    { "code": "217", "operator": "Next Mobilidade", "name": "São Bernardo (Conjunto Terra Nova II) – Terminal Tietê, via Anchieta" },
+    { "code": "218", "operator": "Next Mobilidade", "name": "São Bernardo (Área Verde) – Terminal Tietê, via Anchieta" },
+    { "code": "218EX1", "operator": "Next Mobilidade", "name": "São Bernardo (Terminal Ferrazópolis) – Glicério, via Anchieta" },
+    { "code": "240", "operator": "Internorte", "name": "Mairiporã (Terminal Rodoviário) – Terminal Tietê" },
+    { "code": "280", "operator": "Anhanguera", "name": "Osasco (Centro) – São Bernardo (Terminal Paço), via Diadema" },
+    { "code": "280BI1", "operator": "Anhanguera", "name": "Cidade Universitária – São Bernardo (Terminal Paço), via Diadema" },
+    { "code": "314", "operator": "Next Mobilidade", "name": "São Bernardo (Jardim Las Palmas) – Terminal Tietê" },
+    { "code": "375", "operator": "Internorte", "name": "Mairiporã (Divisa) – Terminal Tietê" },
+    { "code": "378", "operator": "Anhanguera", "name": "Santana de Parnaíba (Terminal Alphaville) – Metrô Paraíso" },
+    { "code": "379", "operator": "Unileste", "name": "Ferraz de Vasconcelos (Centro) – Terminal Tietê" },
+    { "code": "427", "operator": "Internorte", "name": "Guarulhos (Parque Continental II) – Paraíso" },
+    { "code": "566", "operator": "Internorte", "name": "Mairiporã (Terminal Rodoviário) – Terminal Tietê, via Rua Chico Pontes" },
+    { "code": "818", "operator": "Anhanguera", "name": "Barueri (Alphaville) – Metrô Armênia, via Tamboré" },
+    { "code": "819", "operator": "Anhanguera", "name": "Osasco (Terminal Santa Maria) – Barueri (Alphaville 3), via Rodoanel" },
+    { "code": "827", "operator": "Anhanguera", "name": "Santana de Parnaíba (Terminal Fazendinha) – Metrô Paraíso" },
+    { "code": "838", "operator": "Anhanguera", "name": "Metrô Morumbi – Barueri (Alphaville / Green Valley), via Raposo Tavares" }
+  ]
+}

@@ -6,6 +6,10 @@ função `/api/buses` busca as posições dos ônibus por este serviço no Cloud
 
 - `GET /posicao` com o cabeçalho `X-Relay-Key`: o JSON de `/Posicao` do Olho Vivo,
   com cache de 15 s.
+- `GET /emtu?linhas=280,378,…` com o mesmo cabeçalho: veículos e sentidos das linhas
+  seletivas da EMTU (`rest-emtu.noxxonsat.com.br`), com cache de 15 s. O certificado
+  desse servidor venceu em abril de 2025: o relay aceita esse único erro, só para esse
+  host (a cadeia e o nome continuam conferidos). Usado por `/api/emtu-buses`.
 - `GET /health`: `ok` (o Cloud Run reserva `/healthz`).
 
 Segredos (Secret Manager): `sptrans-token` (token do Olho Vivo) e `relay-key` (chave

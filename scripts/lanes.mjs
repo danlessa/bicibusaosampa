@@ -20,10 +20,16 @@ function cells(routes) {
   return set;
 }
 
-/** `routes` maps line code to a list of [[lon, lat], ...] routes. */
-export function assignLanes(routes, { minShared = 0.1, maxLanes = 4 } = {}) {
+/**
+ * `routes` maps line code to a list of [[lon, lat], ...] routes. `taken` maps the
+ * codes of lines already drawn (another layer) to { routes, lane }: their lanes stay
+ * as they are and count as taken where they share streets.
+ */
+export function assignLanes(routes, { minShared = 0.1, maxLanes = 4, taken = {} } = {}) {
   const grid = Object.fromEntries(Object.entries(routes).map(([code, r]) => [code, cells(r)]));
   const codes = Object.keys(grid).sort((a, b) => grid[b].size - grid[a].size || a.localeCompare(b));
+  const fixed = Object.entries(taken).filter(([code]) => !(code in grid));
+  for (const [code, t] of fixed) grid[code] = cells(t.routes);
   const overlap = (a, b) => {
     let n = 0;
     for (const c of grid[a]) if (grid[b].has(c)) n++;
@@ -34,11 +40,12 @@ export function assignLanes(routes, { minShared = 0.1, maxLanes = 4 } = {}) {
     return n && (n / grid[a].size >= minShared || n / grid[b].size >= minShared) ? n : 0;
   };
 
-  const lanes = {};
+  const lanes = Object.fromEntries(fixed.map(([code, t]) => [code, t.lane]));
   for (const code of codes) {
     const cost = new Array(maxLanes).fill(0);
     for (const other of Object.keys(lanes)) cost[lanes[other]] += conflicts(code, other);
     lanes[code] = cost.indexOf(Math.min(...cost));
   }
+  for (const [code] of fixed) delete lanes[code];
   return lanes;
 }

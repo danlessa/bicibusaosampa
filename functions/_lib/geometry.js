@@ -29,3 +29,24 @@ export function simplify(pts, tol = SIMPLIFY_TOLERANCE) {
   }
   return pts.filter((_, i) => keep[i]);
 }
+
+/** Decodes a Google encoded polyline (precision 5) into [lon, lat] points. */
+export function decodePolyline(text) {
+  const pts = [];
+  let i = 0, lat = 0, lon = 0;
+  const next = () => {
+    let shift = 0, result = 0, c;
+    do {
+      c = text.charCodeAt(i++) - 63;
+      result |= (c & 31) << shift;
+      shift += 5;
+    } while (c >= 32);
+    return result & 1 ? ~(result >> 1) : result >> 1;
+  };
+  while (i < text.length) {
+    lat += next();
+    lon += next();
+    pts.push([lon / 1e5, lat / 1e5]);
+  }
+  return pts;
+}

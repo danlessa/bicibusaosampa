@@ -26,6 +26,12 @@ const BUS_COLORS = {
   wait: { expected: '#eab308', unusual: '#f97316' },
 };
 const busColor = (status, unusual) => BUS_COLORS[status][unusual ? 'unusual' : 'expected'];
+// EMTU seletivo coaches carry the bike in the luggage hold, with no published hours:
+// one colour of their own, and boxier icons.
+const EMTU_COLOR = '#0e7490';
+const isEmtu = (x) => x?.agency === 'emtu';
+// Vehicle prefixes are only unique within an operator.
+const busId = (bus) => (isEmtu(bus) ? `emtu:${bus.prefix}` : bus.prefix);
 const RAIL_DASH = { ok: null, wait: '7 5', closed: '1 6' };
 const STATUS_LABELS = { ok: 'Bici liberada', wait: 'Fora do horário da bici', closed: 'Fechada' };
 
@@ -223,15 +229,18 @@ async function getJson(url) {
 // render; the map layers are drawn whenever they arrive.
 const railGeoPromise = getJson('data/rail.geojson').catch(() => ({ features: [] }));
 const busGeoPromise = getJson('data/bus-routes.geojson').catch(() => ({ features: [] }));
-const [railConfig, busConfig] = await Promise.all([
+const emtuGeoPromise = getJson('data/emtu-routes.geojson').catch(() => ({ features: [] }));
+const [railConfig, busConfig, emtuConfig] = await Promise.all([
   getJson('data/rail-lines.json'),
   getJson('data/bike-buses.json'),
+  getJson('data/emtu-seletivo.json').catch(() => ({ lines: [], rules: {} })),
 ]);
 
 const state = {
   live: {}, // ref -> { code, status, description }
-  buses: [],
+  buses: [], // SPTrans 23m buses, then EMTU seletivo coaches (agency: 'emtu')
   busError: null,
+  emtuError: null,
   busesLoaded: false,
 };
 
@@ -347,11 +356,15 @@ async function refreshLive() {
 // added on the fly (`unusual`). `shapes` maps Olho Vivo "sentido" (1 or 2) to the
 // route as [[lat, lon], ...] in travel order.
 const newLine = (props) => ({ routes: [], shapes: {}, bounds: null, ...props });
-const busLineByCode = new Map(busConfig.lines.map((l) => [l.code, newLine(l)]));
+// EMTU line codes ("280", "218EX1") never look like SPTrans ones ("1178-10").
+const busLineByCode = new Map([
+  ...busConfig.lines.map((l) => [l.code, newLine(l)]),
+  ...emtuConfig.lines.map((l) => [l.code, newLine({ ...l, agency: 'emtu' })]),
+]);
 
 // Bike status of buses right now ('ok' or 'wait'), refreshed by renderBuses().
 let busNow = 'ok';
-const lineColor = (line) => busColor(busNow, line?.unusual);
+const lineColor = (line) => (isEmtu(line) ? EMTU_COLOR : busColor(busNow, line?.unusual));
 
 const OffsetPolyline = offsetPolylineClass(L);
 // Routes are drawn 10 m wide on the ground, but never thinner than 1.5 px so they
@@ -388,7 +401,9 @@ function addRoute(line, sentido, coordinates, lane, headsign) {
 function addBusRoutes(busGeo) {
   for (const f of busGeo.features) {
     const line = busLineByCode.get(f.properties.code);
-    if (line) addRoute(line, f.properties.sentido, f.geometry.coordinates, f.properties.lane ?? 0, f.properties.headsign);
+    if (!line) continue;
+    if (f.properties.fare) line.fare = f.properties.fare; // EMTU
+    addRoute(line, f.properties.sentido, f.geometry.coordinates, f.properties.lane ?? 0, f.properties.headsign);
   }
 }
 
@@ -466,9 +481,9 @@ function removeStopsOfLine(code, ids) {
 }
 
 function loadExpectedStops() {
-  expectedStopsLoading ??= getJson('data/bus-stops.geojson')
+  expectedStopsLoading ??= Promise.all(['data/bus-stops.geojson', 'data/emtu-stops.geojson'].map((url) => getJson(url)
     .then((geo) => addStops(geo.features.map((f) => ({ ...f.properties, coordinates: f.geometry.coordinates }))))
-    .catch((err) => console.warn('bus stops unavailable', err));
+    .catch((err) => console.warn(`${url} unavailable`, err))));
 }
 
 function showStopsInView() {
@@ -485,12 +500,17 @@ map.on('moveend overlayadd', showStopsInView);
 
 function busStopPopup({ name, lines }) {
   const s = bikeStatus({ bikes: busConfig.rules.bikes });
-  const rows = [...lines].sort().map((code) => {
+  const codes = [...lines].sort();
+  const rows = codes.map((code) => {
+    const line = busLineByCode.get(code);
     const n = state.buses.filter((b) => b.line === code).length;
-    return `<p style="margin:4px 0">${busBadge(code)} ${esc(busLineByCode.get(code)?.name ?? '')}${n ? ` · ${n} com suporte agora` : ''}</p>`;
+    return `<p style="margin:4px 0">${busBadge(code)} ${esc(line?.name ?? '')}${n ? ` · ${n} ${isEmtu(line) ? 'ao vivo' : 'com suporte agora'}` : ''}</p>`;
   });
+  const emtu = codes.some((c) => isEmtu(busLineByCode.get(c)));
+  const sptrans = codes.some((c) => !isEmtu(busLineByCode.get(c)));
   return `<h3>Ponto: ${esc(name)}</h3>${rows.join('')}
-    <p style="margin:6px 0 0"><span class="dot ${s.status}" style="vertical-align:-1px"></span> ${esc(s.detail)}</p>`;
+    ${sptrans ? `<p style="margin:6px 0 0"><span class="dot ${s.status}" style="vertical-align:-1px"></span> ${esc(s.detail)}</p>` : ''}
+    ${emtu ? `<p style="margin:6px 0 0">${esc(emtuConfig.rules.summary)}</p>` : ''}`;
 }
 
 function busBadge(code) {
@@ -500,18 +520,20 @@ function busBadge(code) {
 // A box in the bus colour with an arrow pointing right; turned by iconTransform()
 // to point the way the bus is going.
 // Outside bike hours the outline is dashed, so the status doesn't rely on colour alone.
-const busSvg = (body, ink, dashed) => `<svg class="bus-icon" viewBox="0 0 26 14" width="26" height="14" aria-hidden="true">
-  <rect x="1" y="1" width="24" height="12" rx="3" fill="${body}" stroke="${ink}" stroke-width="2"${dashed ? ' stroke-dasharray="3 2"' : ''}/>
+// EMTU coaches get square corners.
+const busSvg = (body, ink, dashed, corner = 3) => `<svg class="bus-icon" viewBox="0 0 26 14" width="26" height="14" aria-hidden="true">
+  <rect x="1" y="1" width="24" height="12" rx="${corner}" fill="${body}" stroke="${ink}" stroke-width="2"${dashed ? ' stroke-dasharray="3 2"' : ''}/>
   <path d="M6 7h11M13.5 3.6 17.5 7l-4 3.4" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>`;
 
 const busIcons = new Map();
+/** `status` is the SPTrans bike status, or 'emtu' for a seletivo coach. */
 function busIcon(status, unusual) {
   const key = `${status}|${unusual}`;
   if (!busIcons.has(key)) {
     busIcons.set(key, L.divIcon({
       className: 'bus-marker',
-      html: busSvg(busColor(status, unusual), '#1c1917', status !== 'ok'),
+      html: status === 'emtu' ? busSvg(EMTU_COLOR, '#1c1917', false, 0.8) : busSvg(busColor(status, unusual), '#1c1917', status !== 'ok'),
       // A 40 px box around the small icon: what the finger hits.
       iconSize: [40, 40],
       iconAnchor: [20, 20],
@@ -531,24 +553,31 @@ function busHeading(bus) {
   const shape = line?.shapes[bus.sentido] ?? Object.values(line?.shapes ?? {})[0];
   const onRoute = shape && headingOnRoute(here, shape);
   let angle = onRoute && onRoute.distance < 60 ? onRoute.angle : null;
-  const prev = lastPosition.get(bus.prefix);
+  const id = busId(bus);
+  const prev = lastPosition.get(id);
   angle ??= prev ? headingOfMove(prev, here) : null;
-  angle ??= lastHeading.get(bus.prefix) ?? null;
-  lastPosition.set(bus.prefix, here);
-  if (angle != null) lastHeading.set(bus.prefix, angle);
+  angle ??= lastHeading.get(id) ?? null;
+  lastPosition.set(id, here);
+  if (angle != null) lastHeading.set(id, angle);
   return angle;
 }
 
-const busMarkers = new Map(); // prefix -> marker
+const busMarkers = new Map(); // busId -> marker
+
+const fare = (n) => `R$ ${n.toFixed(2).replace('.', ',')}`;
 
 function busPopup(bus, s) {
   const line = busLineByCode.get(bus.line);
   const seen = bus.at ? new Date(bus.at) : null;
+  const emtu = isEmtu(bus);
+  const rule = emtu
+    ? `<p style="margin:6px 0 0"><b>Seletivo EMTU</b>${line?.operator ? ` · ${esc(line.operator)}` : ''}${line?.fare ? ` · ${fare(line.fare)}` : ''}<br>${esc(emtuConfig.rules.summary)}</p>`
+    : `<p style="margin:6px 0 0"><span class="dot ${s.status}" style="vertical-align:-1px"></span> <b>${STATUS_LABELS[s.status]}</b><br>${esc(s.detail)}</p>`;
   return `<h3>Ônibus ${esc(bus.prefix)}</h3>
     <p style="margin:0">${busBadge(bus.line)} → ${esc(bus.to)}</p>
     ${line?.name ? `<p style="margin:2px 0 0;color:var(--muted)">${esc(line.name)}</p>` : ''}
     ${bus.expected ? '' : '<p style="margin:6px 0 0">⚠️ Fora da rota habitual</p>'}
-    <p style="margin:6px 0 0"><span class="dot ${s.status}" style="vertical-align:-1px"></span> <b>${STATUS_LABELS[s.status]}</b><br>${esc(s.detail)}</p>
+    ${rule}
     ${bus.accessible ? '<p style="margin:6px 0 0">♿ Acessível</p>' : ''}
     ${seen ? `<p style="margin:0;color:var(--muted)">Posição das ${describeTime(seen)}</p>` : ''}
     ${line?.note ? `<p style="margin:6px 0 0">⚠️ ${esc(line.note)}</p>` : ''}`;
@@ -556,8 +585,9 @@ function busPopup(bus, s) {
 
 function lineItem(code, n) {
   const line = busLineByCode.get(code);
+  const what = isEmtu(line) ? 'ao vivo' : 'com suporte';
   const count = !state.busesLoaded ? 'carregando posições…'
-    : n ? `${n} ônibus com suporte agora` : 'nenhum ônibus com suporte agora';
+    : n ? `${n} ônibus ${what} agora` : `nenhum ônibus ${what} agora`;
   return `<li data-code="${esc(code)}">
     ${busBadge(code)}
     <span><span class="name">${esc(line?.name ?? '')}</span>
@@ -587,11 +617,13 @@ function renderBuses() {
   renderBusMarkers(s);
 
   const byCount = (a, b) => (counts.get(b) ?? 0) - (counts.get(a) ?? 0) || a.localeCompare(b);
-  const expected = [...busLineByCode.values()].filter((l) => !l.unusual).map((l) => l.code).sort(byCount);
-  const unusual = [...busLineByCode.values()].filter((l) => l.unusual).map((l) => l.code).sort(byCount);
+  const sptrans = [...busLineByCode.values()].filter((l) => !isEmtu(l));
+  const expected = sptrans.filter((l) => !l.unusual).map((l) => l.code).sort(byCount);
+  const unusual = sptrans.filter((l) => l.unusual).map((l) => l.code).sort(byCount);
   const active = expected.filter((c) => counts.has(c)).length;
+  const sptransLive = state.buses.filter((b) => !isEmtu(b)).length;
 
-  $('#bus-count').textContent = state.busesLoaded && !state.busError ? `· ${state.buses.length} ao vivo` : '';
+  $('#bus-count').textContent = state.busesLoaded && !state.busError ? `· ${sptransLive} ao vivo` : '';
   $('#bus-status').innerHTML = `<span class="dot ${s.status}" style="vertical-align:-1px"></span> ${esc(s.detail)}`
     + (state.busError ? '<br><b>Sem posições ao vivo agora</b>' : '');
   $('#bus-unusual').hidden = !unusual.length;
@@ -600,6 +632,12 @@ function renderBuses() {
   $('#bus-unusual-list').innerHTML = unusual.map((c) => lineItem(c, counts.get(c))).join('');
   $('#bus-lines-summary').textContent = `Linhas habituais (${active} de ${expected.length} com ônibus agora)`;
   $('#bus-list').innerHTML = expected.map((c) => lineItem(c, counts.get(c))).join('');
+
+  const emtu = [...busLineByCode.values()].filter(isEmtu).map((l) => l.code).sort(byCount);
+  const emtuLive = state.buses.filter(isEmtu).length;
+  $('#emtu-count').textContent = state.busesLoaded && !state.emtuError ? `· ${emtuLive} ao vivo` : '';
+  $('#emtu-status').innerHTML = esc(emtuConfig.rules.summary) + (state.emtuError ? '<br><b>Sem posições ao vivo agora</b>' : '');
+  $('#emtu-list').innerHTML = emtu.map((c) => lineItem(c, counts.get(c))).join('');
 }
 
 // Only the buses in view get a marker (hundreds of DOM icons make panning and zooming
@@ -607,15 +645,15 @@ function renderBuses() {
 // opened, not on every refresh.
 const BUS_MIN_ZOOM = 12;
 let busStatusNow = null; // bike status of buses at the last refresh
-const busByPrefix = new Map(); // prefix -> latest vehicle
-const busHeadings = new Map(); // prefix -> angle (math convention) or null
+const busById = new Map(); // busId -> latest vehicle
+const busHeadings = new Map(); // busId -> angle (math convention) or null
 
 function renderBusMarkers(s) {
   busStatusNow = s;
-  busByPrefix.clear();
+  busById.clear();
   for (const bus of state.buses) {
-    busByPrefix.set(bus.prefix, bus);
-    busHeadings.set(bus.prefix, busHeading(bus)); // tracks every bus, shown or not
+    busById.set(busId(bus), bus);
+    busHeadings.set(busId(bus), busHeading(bus)); // tracks every bus, shown or not
   }
   syncBusMarkers();
 }
@@ -627,17 +665,16 @@ function syncBusMarkers() {
   const shown = new Set();
   if (view) {
     const bearing = map.getBearing();
-    for (const bus of busByPrefix.values()) {
+    for (const [id, bus] of busById) {
       if (!view.contains([bus.lat, bus.lon])) continue;
-      shown.add(bus.prefix);
-      const icon = busIcon(s.status, !bus.expected);
-      let marker = busMarkers.get(bus.prefix);
+      shown.add(id);
+      const icon = busIcon(isEmtu(bus) ? 'emtu' : s.status, !bus.expected);
+      let marker = busMarkers.get(id);
       if (!marker) {
-        const prefix = bus.prefix;
         marker = L.marker([bus.lat, bus.lon], { keyboard: false, icon })
-          .bindPopup(() => busPopup(busByPrefix.get(prefix) ?? bus, busStatusNow))
+          .bindPopup(() => busPopup(busById.get(id) ?? bus, busStatusNow))
           .addTo(busLayer);
-        busMarkers.set(prefix, marker);
+        busMarkers.set(id, marker);
       } else {
         marker.setLatLng([bus.lat, bus.lon]);
         if (marker.isPopupOpen()) marker.getPopup().update();
@@ -646,22 +683,22 @@ function syncBusMarkers() {
       marker.setOpacity(busOpacity(bus.line));
       const svg = marker.getElement()?.querySelector('.bus-icon');
       if (svg) {
-        const heading = busHeadings.get(bus.prefix);
+        const heading = busHeadings.get(id);
         svg.dataset.heading = heading ?? '';
         svg.style.transform = iconTransform(heading == null ? null : heading - bearing);
       }
     }
   }
-  for (const [prefix, marker] of busMarkers) {
-    if (!shown.has(prefix)) {
+  for (const [id, marker] of busMarkers) {
+    if (!shown.has(id)) {
       marker.remove();
-      busMarkers.delete(prefix);
+      busMarkers.delete(id);
     }
   }
 }
 map.on('moveend overlayadd', syncBusMarkers);
 
-$('#bus-section').addEventListener('click', async (e) => {
+async function showBusLine(e) {
   const code = e.target.closest('li[data-code]')?.dataset.code;
   const line = busLineByCode.get(code);
   if (!line) return;
@@ -671,17 +708,32 @@ $('#bus-section').addEventListener('click', async (e) => {
   if (bounds) map.fitBounds(bounds, { padding: [40, 40], maxZoom: 15 });
   for (const r of line.routes) r.setStyle({ weight: routeWeight(map.getZoom()) + 3 });
   setTimeout(() => line.routes.forEach((r) => r.setStyle({ weight: routeWeight(map.getZoom()) })), 2500);
-});
+}
+$('#bus-section').addEventListener('click', showBusLine);
+$('#emtu-section').addEventListener('click', showBusLine);
 
+// SPTrans and EMTU come from separate feeds: either can fail without hiding the other.
+let sptransBuses = [], emtuBuses = [];
 async function refreshBuses() {
+  const [sptrans, emtu] = await Promise.allSettled([getJson('api/buses'), getJson('api/emtu-buses')]);
+  const vehicles = (r) => {
+    if (r.status === 'rejected') throw r.reason;
+    if (r.value.error) throw new Error(r.value.error);
+    return r.value.vehicles ?? [];
+  };
   try {
-    const data = await getJson('api/buses');
-    if (data.error) throw new Error(data.error);
-    state.buses = data.vehicles ?? [];
+    sptransBuses = vehicles(sptrans);
     state.busError = null;
   } catch (err) {
     state.busError = err.message;
   }
+  try {
+    emtuBuses = vehicles(emtu);
+    state.emtuError = null;
+  } catch (err) {
+    state.emtuError = err.message;
+  }
+  state.buses = [...sptransBuses, ...emtuBuses];
   state.busesLoaded = true;
   renderBuses();
 }
@@ -797,7 +849,7 @@ function focusLines(used) {
   focus = used;
   for (const line of lines) for (const t of line.tracks) t.setStyle({ opacity: railOpacity(line) });
   for (const line of busLineByCode.values()) for (const r of line.routes) r.setStyle({ opacity: busOpacity(line.code) });
-  for (const bus of state.buses) busMarkers.get(bus.prefix)?.setOpacity(busOpacity(bus.line));
+  for (const bus of state.buses) busMarkers.get(busId(bus))?.setOpacity(busOpacity(bus.line));
 }
 
 // Bus arrows point the way the bus goes on screen, so they turn when the map does.
@@ -827,6 +879,10 @@ refreshLive();
 refreshBuses();
 railGeoPromise.then(addRailGeometry);
 busGeoPromise.then((geo) => {
+  addBusRoutes(geo);
+  renderBuses();
+});
+emtuGeoPromise.then((geo) => {
   addBusRoutes(geo);
   renderBuses();
 });

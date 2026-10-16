@@ -4,13 +4,15 @@
 //   public/data/bus-routes.geojson  routes of the expected bike-bus lines, from the SPTrans GTFS
 //   public/data/bus-stops.geojson   stops served by those lines, from the SPTrans GTFS
 //   public/data/lines/<code>.json   route and stops of every SPTrans bus line, from the GTFS
+//   public/data/emtu-routes.geojson routes of the EMTU seletivo lines, from the EMTU feed
+//   public/data/emtu-stops.geojson  stops of those lines, from the EMTU feed
 //   public/data/bike-parking.geojson bicicletários and paraciclos, from OSM and GeoSampa
 //   public/data/routing/transit.json transit network for the trip planner, from the SPTrans GTFS
 //   public/data/routing/streets.bin  street graph for the trip planner, from OSM and amora's
 //                                    elevations (only on request: `streets`, ~30 Overpass calls)
 //   data/bike-fleet.json            SPTrans buses with a bike rack, from the fleet CSV in assets/
 //
-// Usage: node scripts/build-data.mjs [rail|bus|parking|routing|streets|fleet]   (default: all but streets)
+// Usage: node scripts/build-data.mjs [rail|bus|emtu|parking|routing|streets|fleet]   (default: all but streets)
 // Downloads are cached in .cache/ for a day; delete it to force a refresh.
 
 import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
@@ -19,6 +21,7 @@ import { fileURLToPath } from 'node:url';
 import { unzipSync, strFromU8 } from 'fflate';
 
 import { round, simplify } from '../functions/_lib/geometry.js';
+import { emtuFeatures, emtuGet } from './emtu.mjs';
 import { assignLanes } from './lanes.mjs';
 import { buildParking } from './parking.mjs';
 import { buildTransit } from './routing.mjs';
@@ -282,6 +285,36 @@ async function buildBus() {
   console.log(`  wrote lines/: ${routes.size} line files`);
 }
 
+// ---------------------------------------------------------------- EMTU seletivo lines
+
+async function buildEmtu() {
+  console.log('EMTU: fetching the seletivo lines');
+  const config = await readJson(join(DATA, 'emtu-seletivo.json'));
+  const details = {};
+  for (const { code } of config.lines) {
+    const path = `/rest/lineDetails?linha=${encodeURIComponent(code)}`;
+    console.log(`  GET https://rest-emtu.noxxonsat.com.br${path}`);
+    details[code] = JSON.parse((await cached(`emtu-${code}.json`, () => emtuGet(path))).toString('utf8'));
+  }
+  const { routes, stops, missing } = emtuFeatures(details, config);
+  if (missing.length) console.warn(`  line(s) not in the EMTU feed: ${missing.join(', ')}`);
+  if (missing.length > config.lines.length / 2) throw new Error(`${missing.length} of ${config.lines.length} lines missing, the feed looks broken`);
+
+  // Lanes, keeping clear of the SPTrans routes already on the map where they share streets.
+  const taken = {};
+  for (const f of (await readJson(join(DATA, 'bus-routes.geojson'))).features) {
+    (taken[f.properties.code] ??= { routes: [], lane: f.properties.lane ?? 0 }).routes.push(f.geometry.coordinates);
+  }
+  const byCode = {};
+  for (const f of routes) (byCode[f.properties.code] ??= []).push(f.geometry.coordinates);
+  const lanes = assignLanes(byCode, { taken });
+  for (const f of routes) f.properties.lane = lanes[f.properties.code];
+
+  await writeFile(join(DATA, 'emtu-routes.geojson'), JSON.stringify({ type: 'FeatureCollection', features: routes }));
+  await writeFile(join(DATA, 'emtu-stops.geojson'), JSON.stringify({ type: 'FeatureCollection', features: stops }));
+  console.log(`  wrote emtu-routes.geojson: ${Object.keys(byCode).length} lines, ${routes.length} directions; emtu-stops.geojson: ${stops.length} stops`);
+}
+
 // ---------------------------------------------------------------- bike parking (OSM + GeoSampa)
 
 async function buildParkingLayer() {
@@ -436,6 +469,7 @@ async function run(name, build) {
 const which = process.argv[2];
 if (!which || which === 'rail') await run('rail', buildRail);
 if (!which || which === 'bus') await run('bus', buildBus);
+if (!which || which === 'emtu') await run('emtu', buildEmtu);
 if (!which || which === 'parking') await run('parking', buildParkingLayer);
 if (!which || which === 'routing') await run('routing', buildRouting);
 if (which === 'streets') await run('streets', buildStreetsLayer);

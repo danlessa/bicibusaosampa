@@ -279,6 +279,7 @@ h2 { margin: 16px 0 8px; font-size: 13px; text-transform: uppercase; letter-spac
 .dot.closed { background: var(--closed); }
 
 .swatch.dashed { border-style: dashed; }
+.swatch.square { border-radius: 0; }
 .bus-key { margin: 0 0 8px; display: grid; grid-template-columns: 1fr 1fr; column-gap: 8px; font-size: 13px; color: var(--muted); }
 .rail-swatch { flex: none; display: inline-block; width: 22px; height: 0; border-top: 3px solid var(--ok); }
 .rail-swatch.wait { border-top: 3px dashed var(--wait); }

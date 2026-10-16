@@ -31,6 +31,11 @@ Mapa ao vivo dos ônibus e trilhos da Grande São Paulo que levam bicicleta, em
   - Os itinerários têm 10 m de largura no chão (no mínimo 1,5 px na tela) e ficam
     deslocados, para que sentidos e linhas no mesmo corredor apareçam lado a lado.
   - Os pontos de parada aparecem a partir do zoom 14.
+- **Ônibus seletivos da EMTU**: posição ao vivo, itinerário e pontos das 20 linhas
+  seletivas intermunicipais (ônibus rodoviários, só passageiros sentados), em
+  azul-petróleo e com cantos retos. A bici vai no bagageiro, se houver espaço. A EMTU
+  não publica regra nem horário para bicicletas nesses ônibus, então o mapa não dá
+  um status: confirme com o motorista.
 
 - **Bicicletários e paraciclos** de toda a Grande SP (os 39 municípios da RMSP),
   do OpenStreetMap e da lista oficial da Prefeitura (GeoSampa). O bicicletário
@@ -49,7 +54,7 @@ Mapa ao vivo dos ônibus e trilhos da Grande São Paulo que levam bicicleta, em
 O controle de camadas, no canto superior direito, liga e desliga separadamente:
 trilhos, estações, itinerários, ônibus ao vivo, pontos de ônibus e bicicletários.
 
-Ônibus intermunicipais (antiga EMTU, hoje Artesp) não aparecem porque não aceitam
+Os outros ônibus intermunicipais (EMTU, hoje Artesp) não aparecem porque não aceitam
 bicicleta a bordo.
 
 ## Regras usadas
@@ -58,6 +63,7 @@ bicicleta a bordo.
 |---|---|---|---|
 | Metrô, ViaQuatro, ViaMobilidade, CPTM, TIC Trens, LinhaUni | 10h–16h e 21h até o fechamento | dia todo | dia todo |
 | Ônibus SPTrans (superarticulados) | 10h01–15h59 e 19h01–5h59 | a partir das 14h | dia todo |
+| Seletivos EMTU (bagageiro) | sem regra publicada | sem regra publicada | sem regra publicada |
 
 Os horários de operação de cada linha ficam em
 [public/data/rail-lines.json](public/data/rail-lines.json). O Metrô roda 24h de
@@ -96,9 +102,14 @@ public/                       site estático (Leaflet)
   data/bike-parking.geojson   bicicletários e paraciclos (gerado, OpenStreetMap + GeoSampa)
   data/lines/<código>.json    itinerário e pontos de cada linha da SPTrans, para as que
                               aparecem fora da rota habitual (gerado, GTFS SPTrans)
+  data/emtu-seletivo.json     linhas seletivas da EMTU (do relatório tarifário) e regra
+  data/emtu-routes.geojson    itinerários dessas linhas (gerado, feed da EMTU)
+  data/emtu-stops.geojson     pontos dessas linhas (gerado, feed da EMTU)
 data/bike-fleet.json          prefixos dos ônibus com suporte (gerado, cadastro da frota)
 functions/api/buses.js        só os ônibus da frota com suporte (cache de 20 s), via relay em produção
-relay/                        relay do Olho Vivo no Cloud Run: a SPTrans bloqueia o Cloudflare
+functions/api/emtu-buses.js   ônibus seletivos da EMTU ao vivo (cache de 20 s), via relay
+relay/                        relay no Cloud Run: a SPTrans bloqueia o Cloudflare, e o
+                              certificado do feed da EMTU venceu (o Cloudflare o recusa)
 functions/api/route.js        itinerário via GeoSampa, para linhas que faltam no GTFS (cache de 1 dia)
 functions/api/rail-status.js  status ao vivo das linhas (feed usado por trilhos.motiva.com.br, cache de 60 s)
 scripts/build-data.mjs        gera os arquivos de dados (geometrias simplificadas a ~2 m)
@@ -124,7 +135,15 @@ npm install
 cp .env.example .env            # e preencha SPTRANS_TOKEN
 npm run dev                      # http://localhost:8788
 npm test
-npm run build:data               # regenera as camadas (ou só uma: -- rail, -- bus, -- parking)
+npm run build:data               # regenera as camadas (ou só uma: -- rail, -- bus, -- emtu, -- parking)
+```
+
+Os seletivos da EMTU só aparecem ao vivo com o relay rodando local (ele usa o
+`SPTRANS_TOKEN` do `.env`):
+
+```sh
+(set -a; . ./.env; RELAY_KEY=teste PORT=8791 node relay/server.mjs) &
+npx wrangler pages dev --binding OLHOVIVO_RELAY_URL=http://localhost:8791 --binding OLHOVIVO_RELAY_KEY=teste
 ```
 
 ## Publicação (Cloudflare Pages)
@@ -155,6 +174,8 @@ Para publicar direto da máquina, sem integração com o Git: `npm run deploy`.
   - [Linha 17](https://viatrolebus.com.br/2026/09/linha-17-passa-a-operar-ate-as-22h/)
 - Dados:
   - [API Olho Vivo](https://www.sptrans.com.br/desenvolvedores/)
+  - EMTU: [relatório tarifário RMSP](https://www.emtu.sp.gov.br/EMTU/pdf/RELAT%C3%93RIO%20TARIF%C3%81RIO%20RMSP%20-%20SITE%20%2027.08.25.pdf)
+    (lista das linhas seletivas) e `rest-emtu.noxxonsat.com.br` (posições, itinerários e pontos)
   - [GTFS SPTrans (espelho do Mobility Database)](https://files.mobilitydatabase.org/mdb-8/latest.zip)
   - © colaboradores do [OpenStreetMap](https://www.openstreetmap.org/copyright)
   - [GeoSampa](https://geosampa.prefeitura.sp.gov.br/) (camada `bicicletario_paraciclo`)

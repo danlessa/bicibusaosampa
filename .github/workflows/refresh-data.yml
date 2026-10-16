@@ -12,8 +12,10 @@ on:
     branches: [main]
     paths:
       - public/data/bike-buses.json
+      - public/data/emtu-seletivo.json
       - public/data/rail-lines.json
       - scripts/build-data.mjs
+      - scripts/emtu.mjs
       - scripts/parking.mjs
       - scripts/opening-hours.mjs
 
